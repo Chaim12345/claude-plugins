@@ -41,6 +41,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--surface); }
 button, input, select { font: inherit; color: inherit; }
@@ -51,7 +52,8 @@ button { cursor: pointer; }
 
 /* header */
 .top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); }
-.top-in { max-width: 1240px; margin: 0 auto; padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; grid-template-columns: auto 1fr auto; gap: 10px 14px; align-items: center; }
+.top-in { max-width: 1240px; margin: 0 auto; padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: "logo search where sync"; gap: 10px 14px; align-items: center; }
+.logo { grid-area: logo; } .search { grid-area: search; } .where { grid-area: where; } .syncbtn { grid-area: sync; }
 .logo { font-family: var(--display); font-size: 24px; line-height: 1; color: var(--brand); display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .logo i { width: 30px; height: 30px; border-radius: 9px; background: var(--tag); display: grid; place-items: center; font-style: normal; color: var(--tag-ink); font-size: 17px; }
 .search { position: relative; min-width: 0; }
@@ -61,9 +63,11 @@ button { cursor: pointer; }
 .where select { height: 40px; border-radius: 20px; border: 1px solid var(--line); background: var(--surface); padding: 0 12px; max-width: 170px; }
 .cartbtn { display: none; }
 @media (max-width: 760px) {
-  .top-in { grid-template-columns: 1fr auto; }
-  .search { grid-column: 1 / -1; grid-row: 2; }
-  .where select { max-width: 132px; height: 36px; font-size: 14px; }
+  .top-in { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "logo sync" "search search" "where where"; gap: 8px; }
+  .top-in:not(:has(.syncbtn:not([hidden]))) { grid-template-areas: "logo where" "search search"; }
+  .top-in:has(.syncbtn:not([hidden])) .where select { flex: 1; max-width: none; }
+  .where { min-width: 0; }
+  .where select { max-width: 132px; height: 36px; font-size: 14px; min-width: 0; }
 }
 
 /* store strip */
@@ -90,6 +94,15 @@ button { cursor: pointer; }
 .card { background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow); padding: 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .thumb { aspect-ratio: 4 / 3; max-width: 100%; border-radius: 10px; display: grid; place-items: center; font-family: var(--display); font-size: 30px; border: 0; padding: 0; position: relative; overflow: hidden; }
 .thumb span { opacity: .9; }
+.thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; padding: 8px; }
+.syncbtn { height: 40px; border-radius: 20px; border: 1px solid var(--brand); background: var(--brand-soft); color: var(--brand); font-weight: 700; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.syncbtn svg { width: 18px; height: 18px; }
+.syncbtn[aria-busy="true"] svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(-360deg); } }
+.syncbar { max-width: 1240px; margin: 0 auto; padding-block: 0 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); font-size: 13px; color: var(--ink-2); }
+.syncbar b { color: var(--ink); }
+.syncbar .err { color: var(--bad); }
+@media (max-width: 760px) { .syncbtn { height: 36px; padding: 0 12px; font-size: 14px; } }
 .thumb .kg { position: absolute; top: 6px; left: 6px; font-family: var(--body); font-size: 12px; font-weight: 700; background: var(--surface); color: var(--ink); border-radius: 6px; padding: 1px 6px; }
 .pname { font-weight: 600; font-size: 14.5px; line-height: 1.3; min-height: 2.6em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; background: none; border: 0; padding: 0; text-align: right; }
 .tagrow { display: flex; align-items: flex-end; justify-content: space-between; gap: 6px; }
@@ -180,6 +193,7 @@ button { cursor: pointer; }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         <input id="q" type="search" placeholder="חיפוש מוצר: חלב, עגבניות, במבה…" autocomplete="off" aria-label="חיפוש מוצר">
       </label>
+        <button class="syncbtn" id="sync" hidden aria-label="עדכון מחירים מהרשתות"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8"/><path d="M4 3v5h5"/><path d="M4 13a8 8 0 0 0 14.6 4.5L20 16"/><path d="M20 21v-5h-5"/></svg><span>עדכון מחירים</span></button>
       <div class="where">
         <select id="area" aria-label="המיקום שלי"></select>
         <select id="radius" aria-label="מרחק מקסימלי">
@@ -191,6 +205,7 @@ button { cursor: pointer; }
       </div>
     </div>
     <div class="strip" id="stores" aria-label="סניפים בהשוואה"></div>
+    <div class="syncbar" id="syncbar" hidden aria-live="polite"></div>
   </header>
 
   <div class="wrap">
@@ -233,7 +248,7 @@ button { cursor: pointer; }
     set(k, v) { try { localStorage.setItem("salzol:" + k, JSON.stringify(v)); } catch {} },
   };
 
-  const S = { D: null, byId: new Map(), q: "", cat: "all", sort: "pop", shown: 48, cart: {}, example: false, area: 0, radius: 99, off: new Set() };
+  const S = { server: false, syncing: false, D: null, byId: new Map(), q: "", cat: "all", sort: "pop", shown: 48, cart: {}, example: false, area: 0, radius: 99, off: new Set() };
 
   function norm(s) { return s.replace(/["'׳״`]/g, "").replace(/\s+/g, " ").trim().toLowerCase(); }
   function km(a, b) {
@@ -250,14 +265,16 @@ button { cursor: pointer; }
   function qtyText(p, q) { return p.w ? `${q} ק״ג` : `${q}`; }
 
   // ---------- load ----------
-  fetch("data.json").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(init).catch(() => {
+  const loadData = () => fetch("data.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  loadData().then(init).catch(() => {
     $("#grid").innerHTML = `<div class="empty">קובץ המחירים לא נטען. רעננו את הדף; אם זה חוזר, הנתונים של היום עוד לא פורסמו.</div>`;
   });
 
   function init(D) {
     S.D = D;
-    for (const [code, name, cat, w, prices, picks] of D.products) {
-      S.byId.set(code, { code, name, cat, w, prices, picks, key: norm(name) });
+    S.byId.clear();
+    for (const [code, name, cat, w, prices, picks, img] of D.products) {
+      S.byId.set(code, { code, name, cat, w, prices, picks, img: img || null, key: norm(name) });
     }
     S.area = store.get("area", 0) < D.areas.length ? store.get("area", 0) : 0;
     S.radius = store.get("radius", 99);
@@ -308,7 +325,7 @@ button { cursor: pointer; }
     const mono = p.name.replace(/[^א-תa-zA-Z0-9]/g, "").slice(0, 2);
     const gap = pi.hi > pi.lo ? Math.round((pi.hi / pi.lo - 1) * 100) : 0;
     return `<article class="card">
-      <button class="thumb" style="background:color-mix(in srgb, ${tint} 38%, var(--surface))" data-open="${esc(p.code)}" aria-label="מחירים בכל הסניפים: ${esc(p.name)}"><span>${esc(mono)}</span>${p.w ? `<em class="kg">לק״ג</em>` : ""}</button>
+      <button class="thumb" style="background:color-mix(in srgb, ${tint} 38%, var(--surface))" data-open="${esc(p.code)}" aria-label="מחירים בכל הסניפים: ${esc(p.name)}"><span>${esc(mono)}</span>${S.server && p.img ? `<img src="img/${encodeURIComponent(p.img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}${p.w ? `<em class="kg">לק״ג</em>` : ""}</button>
       <button class="pname" data-open="${esc(p.code)}">${esc(p.name)}</button>
       <div class="tagrow"><span class="tag num">${money(pi.lo)}<small> ₪</small></span><span class="at">הכי זול ב<b>${esc(S.D.stores[pi.at].chain)}</b></span></div>
       <div class="spread">${pi.n} סניפים${gap ? ` · עד <span class="hi num">+${gap}%</span> במקום יקר` : " · אותו מחיר"}</div>
@@ -443,6 +460,48 @@ button { cursor: pointer; }
   $("#area").addEventListener("change", e => { S.area = +e.target.value; store.set("area", S.area); renderAll(); });
   $("#radius").addEventListener("change", e => { S.radius = +e.target.value; store.set("radius", S.radius); renderAll(); });
 
+  // ---------- live sync (only when served by the salzol server) ----------
+  const ago = iso => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 1 ? "עכשיו" : m < 60 ? `לפני ${m} דק׳` : m < 1440 ? `לפני ${Math.round(m / 60)} שע׳` : fmtDate(iso.slice(0, 10)); };
+  function syncText(st) {
+    if (st && st.running) {
+      const ev = st.events || [], n = S.D ? S.D.stores.length : 0;
+      const got = new Set(ev.filter(e => ["download", "cached", "skip"].includes(e.phase)).map(e => e.store)).size;
+      const parsed = ev.filter(e => e.phase === "parse").length, kb = ev.reduce((s, e) => s + (e.bytes || 0), 0) / 1024;
+      return parsed ? `מעבד קבצים… <b class="num">${parsed}</b> סניפים` : `בודק קבצים חדשים אצל הרשתות… <b class="num">${got}/${n}</b>${kb ? ` · הורדו <span class="num">${Math.round(kb)}</span> KB` : ""}`;
+    }
+    if (st && st.error) return `<span class="err">העדכון נכשל: ${esc(st.error)}</span>`;
+    if (!S.D) return "";
+    const newest = S.D.stores.map(s => s.fileTime || "").sort().pop();
+    const ft = newest && newest.length >= 12 ? `${+newest.slice(6, 8)}.${+newest.slice(4, 6)} ${newest.slice(8, 10)}:${newest.slice(10, 12)}` : fmtDate(S.D.priceDate);
+    return `הקובץ החדש ביותר: <b class="num">${ft}</b> · נבדק ${ago(S.D.generatedAt)}${S.D.skipped && S.D.skipped.length ? ` · דולגו ${S.D.skipped.length} סניפים` : ""}`;
+  }
+  function setSyncUI(st) {
+    $("#sync").setAttribute("aria-busy", !!(st && st.running));
+    $("#sync").disabled = !!(st && st.running);
+    $("#syncbar").innerHTML = syncText(st);
+  }
+  async function pollSync() {
+    try {
+      const st = await (await fetch("api/sync", { cache: "no-store" })).json();
+      setSyncUI(st);
+      if (st.running) return setTimeout(pollSync, 700);
+      S.syncing = false;
+      if (!st.error) { S.D = null; init(await loadData()); setSyncUI(null); }
+    } catch { S.syncing = false; setSyncUI({ error: "השרת לא עונה" }); }
+  }
+  $("#sync").addEventListener("click", async () => {
+    if (S.syncing) return;
+    S.syncing = true; setSyncUI({ running: true, events: [] });
+    try { await fetch("api/sync", { method: "POST" }); } catch {}
+    pollSync();
+  });
+  fetch("api/health", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(h => {
+    if (!h || !h.sync) return;
+    S.server = true; $("#sync").hidden = false; $("#syncbar").hidden = false;
+    if (S.D) { renderShop(); setSyncUI(null); }
+    fetch("api/sync").then(r => r.json()).then(st => { if (st.running) { S.syncing = true; pollSync(); } });
+  }).catch(() => {});
+
   function route() {
     const v = location.hash === "#cart" ? "cart" : "shop";
     $("#app").dataset.view = v;
@@ -451,6 +510,6 @@ button { cursor: pointer; }
   }
   window.addEventListener("hashchange", route); route();
 
-  function renderAll() { if (!S.D) return; renderStores(); renderShop(); renderCart(); }
+  function renderAll() { if (!S.D) return; renderStores(); renderShop(); renderCart(); if (S.server) setSyncUI(null); }
 })();
 </script>
