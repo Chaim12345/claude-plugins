@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -198,5 +199,42 @@ func TestBranchLabel(t *testing.T) {
 		if got := branchLabel(DirStore{Name: c.name, Banner: c.banner, City: c.city}); got != c.want {
 			t.Errorf("branchLabel(%q) = %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+func TestNearbyKeepsDuplicateListingsAsAlternates(t *testing.T) {
+	d := &Directory{Stores: []DirStore{
+		{Chain: "citymarket", StoreID: "6", Banner: "סיטי מרקט", Name: "סיטי מרקט חולון", Lat: 32.0253, Lon: 34.7767},
+		{Chain: "citymarketshops", StoreID: "1", Banner: "סיטי מרקט", Name: "סיטי מרקט חולון", Lat: 32.0254, Lon: 34.7766},
+		{Chain: "citymarket", StoreID: "9", Banner: "סיטי מרקט", Name: "far", Lat: 32.0400, Lon: 34.7766}, // 1.6 km: a different shop
+		{Chain: "RamiLevi", StoreID: "1", Banner: "רמי לוי", Lat: 32.026, Lon: 34.777},
+	}}
+	near := d.Nearby(32.0253, 34.7766, 3, 10)
+	if len(near) != 2 || near[0].Chain != "citymarket" || len(near[0].Alt) != 1 || near[0].Alt[0].Chain != "citymarketshops" {
+		t.Fatalf("near = %+v", near)
+	}
+	cfg := ConfigFor(near, "x", 32.0253, 34.7766)
+	if len(cfg.Stores[0].Alt) != 1 || cfg.Stores[0].Alt[0].Chain != "citymarketshops" || cfg.Stores[0].Alt[0].ChainName != "סיטי מרקט" {
+		t.Errorf("config alt = %+v", cfg.Stores[0].Alt)
+	}
+}
+
+func TestAddressFromStoreName(t *testing.T) {
+	for in, want := range map[string][3]string{
+		`סיטי מרקט אגמים בע"מ , עמק האלה 47 אשקלון`: {`סיטי מרקט אגמים בע"מ`, "עמק האלה 47", "אשקלון"},
+		"סיטי מרקט וייצמן כפר סבא, וייצמן 55":       {"סיטי מרקט וייצמן כפר סבא, וייצמן 55", "", ""}, // no city after the number
+		"סיטי מרקט חולון":                           {"סיטי מרקט חולון", "", ""},
+	} {
+		s, a, c := addressFromName(in)
+		if [3]string{s, a, c} != want {
+			t.Errorf("%q -> %q %q %q", in, s, a, c)
+		}
+	}
+	rows, err := ParseStoresFile(strings.NewReader(`<root><SubChains><SubChainsXMLObject><SubChain><Stores><SubChainStoresXMLObject><Store>
+<SubChainStoreXMLObject><StoreId>027</StoreId><StoreName> סיטי מרקט אגמים בע"מ , עמק האלה 47 אשקלון</StoreName><Address>unknown</Address><City>unknown</City></SubChainStoreXMLObject>
+<SubChainStoreXMLObject><StoreId>001</StoreId><StoreName>סיטי מרקט חולון</StoreName><Address>שנקר 25</Address><City>חולון</City></SubChainStoreXMLObject>
+</Store></SubChainStoresXMLObject></Stores></SubChain></SubChainsXMLObject></SubChains></root>`), "citymarketshops")
+	if err != nil || len(rows) != 2 || rows[0].StoreID != "27" || rows[0].City != "אשקלון" || rows[0].Address != "עמק האלה 47" || rows[1].City != "חולון" {
+		t.Errorf("nested stores = %+v, %v", rows, err)
 	}
 }

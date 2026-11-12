@@ -24,6 +24,9 @@ type StoreRef struct {
 	Lat       *float64 `json:"lat"`
 	Lon       *float64 `json:"lon"`
 	Approx    bool     `json:"approx"` // coordinates are a city-centre fallback
+	// Alt are other listings of the same shop (same chain name, within DuplicateKm), often on another
+	// portal: tried in order when this one publishes nothing.
+	Alt []StoreRef `json:"alt,omitempty"`
 }
 
 type Config struct {
@@ -73,6 +76,7 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 	}
 
 	results := make([]result, len(cfg.Stores))
+	cfg.Stores = append([]StoreRef(nil), cfg.Stores...) // an alternate listing may replace an entry
 
 	// One goroutine per chain: chains in parallel, a chain's own stores in sequence over one login session.
 	byChain := map[string][]int{}
@@ -103,6 +107,31 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 		}(chain, idxs)
 	}
 	wg.Wait()
+
+	// A branch that published nothing may be listed again under another portal: try those listings.
+	for i := range cfg.Stores {
+		if results[i].err == nil {
+			continue
+		}
+		for _, alt := range cfg.Stores[i].Alt {
+			portal, err := NewPortal(alt.Chain, s.Client)
+			if err != nil {
+				continue
+			}
+			var r result
+			r.path, r.file, r.err = s.fetch(ctx, portal, alt, raw, "PriceFull", portal.LatestPriceFull)
+			if r.err != nil {
+				continue
+			}
+			if pp, pf, perr := s.fetch(ctx, portal, alt, raw, "PromoFull", portal.LatestPromoFull); perr == nil {
+				r.promoPath, r.promoFile = pp, pf
+			}
+			s.emit(Event{Phase: "alt", Store: cfg.Stores[i].key(), Message: "using " + alt.key()})
+			results[i] = r
+			cfg.Stores[i] = alt
+			break
+		}
+	}
 
 	// Nothing new since the last catalog? Then the answer is the catalog we already have.
 	if prev, err := LoadCatalogFile(s.catalogPath()); err == nil && prev.Version == CatalogVersion && unchanged(prev, cfg, results) {

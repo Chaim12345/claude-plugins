@@ -1,12 +1,14 @@
 package core
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"compress/gzip"
 	"encoding/xml"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf16"
@@ -49,6 +51,21 @@ func openXML(r io.Reader) (io.Reader, error) {
 			return nil, fmt.Errorf("gzip: %w", err)
 		}
 		br = bufio.NewReaderSize(gz, 64<<10)
+	} else if len(magic) == 2 && magic[0] == 'P' && magic[1] == 'K' {
+		// Some portals serve a zip under a .gz name: read its first file.
+		all, err := io.ReadAll(br)
+		if err != nil {
+			return nil, err
+		}
+		z, err := zip.NewReader(bytes.NewReader(all), int64(len(all)))
+		if err != nil || len(z.File) == 0 {
+			return nil, fmt.Errorf("zip: %v", err)
+		}
+		f, err := z.File[0].Open()
+		if err != nil {
+			return nil, fmt.Errorf("zip: %w", err)
+		}
+		br = bufio.NewReaderSize(f, 64<<10)
 	}
 	head, _ := br.Peek(3)
 	switch {
@@ -147,9 +164,13 @@ func ParsePriceFile(r io.Reader) ([]Item, error) {
 		if maker == "" {
 			maker = m["manufacturename"]
 		}
+		name := m["itemname"]
+		if name == "" {
+			name = m["itemnm"] // City Market Shops
+		}
 		items = append(items, Item{
 			Code:     strings.TrimLeft(m["itemcode"], "0"),
-			Name:     CleanName(m["itemname"]),
+			Name:     CleanName(name),
 			Price:    price,
 			Qty:      m["quantity"],
 			Unit:     m["unitofmeasure"],
@@ -171,17 +192,52 @@ func first(a, b string) string {
 	return b
 }
 
-// ParseStoresFile reads a chain's Stores file.
+// ParseStoresFile reads a chain's Stores file. Most chains write one <Store> per branch; some
+// (City Market Shops) nest them as <Store><SubChainStoreXMLObject>...</SubChainStoreXMLObject>....
 func ParseStoresFile(r io.Reader, chain string) ([]StoreRow, error) {
+	in, err := openXML(r)
+	if err != nil {
+		return nil, err
+	}
+	all, err := io.ReadAll(in) // Stores files are small
+	if err != nil {
+		return nil, err
+	}
+	tag := "store"
+	if bytes.Contains(bytes.ToLower(all), []byte("<subchainstorexmlobject>")) {
+		tag = "subchainstorexmlobject"
+	}
 	var out []StoreRow
-	err := eachRecord(r, "store", func(m map[string]string) {
+	err = eachRecord(bytes.NewReader(all), tag, func(m map[string]string) {
 		id := strings.TrimLeft(m["storeid"], "0")
 		if id == "" {
 			id = "0"
 		}
-		out = append(out, StoreRow{Chain: chain, StoreID: id, Name: m["storename"], Address: m["address"], City: m["city"], SubChain: m["subchainname"]})
+		row := StoreRow{Chain: chain, StoreID: id, Name: strings.TrimSpace(m["storename"]), Address: m["address"], City: m["city"], SubChain: m["subchainname"]}
+		if unknownField(row.Address) && unknownField(row.City) {
+			row.Name, row.Address, row.City = addressFromName(row.Name)
+		}
+		out = append(out, row)
 	})
 	return out, err
+}
+
+func unknownField(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	return s == "" || s == "unknown" || s == "לא ידוע"
+}
+
+// nameAddrRx splits "סיטי מרקט אגמים בע"מ , עמק האלה 47 אשקלון" into the store name, the street
+// with its number, and the city after the number.
+var nameAddrRx = regexp.MustCompile(`^(.*?)\s*,\s*([^,]*?\d+[א-ת]?)\s+([^,\d]+)$`)
+
+// addressFromName recovers the address some chains write into the store name only.
+func addressFromName(name string) (store, address, city string) {
+	m := nameAddrRx.FindStringSubmatch(strings.TrimSpace(name))
+	if m == nil {
+		return name, "", ""
+	}
+	return strings.TrimSpace(m[1]), strings.TrimSpace(m[2]), strings.TrimSpace(m[3])
 }
 
 // CleanName strips promo markers ("*מבצע*") and collapses whitespace.

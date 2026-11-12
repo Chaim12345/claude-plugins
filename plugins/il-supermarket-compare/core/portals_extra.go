@@ -18,6 +18,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,6 +31,7 @@ var ChainNames = map[string]string{
 	"bareket": "סופר ברקת", "kingstore": "קינג סטור", "maayan2000": "מעיין 2000", "zolvebegadol": "זול ובגדול",
 	"supersapir": "סופר ספיר", "shukhair": "שוק העיר", "shefa": "שפע ברכת השם", "citymarket": "סיטי מרקט",
 	"ktmarket": "קיי.טי מרקט (משנת יוסף)", "netivhased": "נתיב החסד",
+	"citymarketshops": "סיטי מרקט",
 }
 
 func init() {
@@ -41,7 +43,7 @@ func init() {
 // ExtraChains are the portal keys added in this file, for the directory builder.
 var ExtraChains = []string{"quik", "victory", "mahsanei", "hcohen", "wolt", "hazihinam",
 	"bareket", "kingstore", "maayan2000", "zolvebegadol", "supersapir", "shukhair", "shefa", "citymarket",
-	"ktmarket", "netivhased"}
+	"ktmarket", "netivhased", "citymarketshops"}
 
 // Portal base URLs. They are variables so tests can point the clients at httptest servers.
 var (
@@ -74,6 +76,8 @@ func newExtraPortal(chain string, c *http.Client) (Portal, bool) {
 		return &wolt{c: c}, true
 	case "hazihinam":
 		return &haziHinam{c: c}, true
+	case "citymarketshops":
+		return &cityMarketShops{c: c}, true
 	}
 	if b, ok := binaChains[chain]; ok {
 		return &bina{c: jar(), chain: chain, prefix: b.prefix, chainIDs: b.ids}, true
@@ -642,6 +646,141 @@ func (h *haziHinam) latest(ctx context.Context, listType, kind, storeID string) 
 
 func (h *haziHinam) Open(ctx context.Context, f FileRef) (io.ReadCloser, error) {
 	r, err := get(ctx, h.c, f.URL)
+	if err != nil {
+		return nil, err
+	}
+	return r.Body, nil
+}
+
+// ---------------- City Market shops (citymarket-shops.co.il) ----------------
+// A paged HTML table filtered by query string: t=<1 prices, 2 promos, 3 stores>, f=<1 full>,
+// s=<store, 3 digits>, d=<YYYY-MM-DD>, p=<page>. Cells: date, branch, file name (no extension),
+// type, full/partial, size in KB, download link. The chain also publishes small hourly updates
+// under the PriceFull name; the real full file is the big one from the night run. Source:
+// scrappers/city_market.py (CityMarketShops).
+
+var cityShopsURL = "https://www.citymarket-shops.co.il/"
+
+// cityShopsFullKB: a "PriceFull" smaller than this is an hourly update, not the full list.
+const cityShopsFullKB = 50
+
+type cityShopsFile struct {
+	FileRef
+	kb float64
+}
+
+type cityMarketShops struct {
+	c     *http.Client
+	lists map[string][]cityShopsFile
+}
+
+var cityShopsPagesRx = regexp.MustCompile(`[?&]p=(\d+)`)
+
+func (cm *cityMarketShops) list(ctx context.Context, typ, full, day string) ([]cityShopsFile, error) {
+	key := typ + "|" + full + "|" + day
+	if l, ok := cm.lists[key]; ok {
+		return l, nil
+	}
+	base, _ := url.Parse(cityShopsURL)
+	var out []cityShopsFile
+	seen := map[string]bool{}
+	pages := 1
+	for page := 1; page <= pages && page <= 40; page++ {
+		q := url.Values{"p": {fmt.Sprint(page)}, "s": {""}, "f": {full}, "t": {typ}, "d": {day}}
+		body, err := getText(ctx, cm.c, cityShopsURL+"?"+q.Encode())
+		if err != nil {
+			if page == 1 {
+				return nil, err
+			}
+			break
+		}
+		for _, m := range cityShopsPagesRx.FindAllStringSubmatch(body, -1) {
+			if n, _ := strconv.Atoi(m[1]); n > pages {
+				pages = n
+			}
+		}
+		for _, row := range haziRowRx.FindAllStringSubmatch(body, -1) {
+			cells := haziCellRx.FindAllStringSubmatch(row[1], -1)
+			if len(cells) < 7 {
+				continue
+			}
+			name := strings.TrimSpace(tagRx.ReplaceAllString(cells[2][1], ""))
+			href := haziHrefRx.FindStringSubmatch(cells[6][1])
+			if name == "" || href == nil || seen[name] {
+				continue
+			}
+			seen[name] = true
+			kb, _ := strconv.ParseFloat(strings.ReplaceAll(strings.TrimSpace(tagRx.ReplaceAllString(cells[5][1], "")), ",", ""), 64)
+			u, err := url.Parse(strings.ReplaceAll(href[1], "&amp;", "&"))
+			if err != nil {
+				continue
+			}
+			if !strings.Contains(name, ".") {
+				name += ".xml.gz"
+			}
+			out = append(out, cityShopsFile{FileRef{Name: name, URL: base.ResolveReference(u).String()}, kb})
+		}
+	}
+	if cm.lists == nil {
+		cm.lists = map[string][]cityShopsFile{}
+	}
+	cm.lists[key] = out
+	return out, nil
+}
+
+func (cm *cityMarketShops) Stores(ctx context.Context) ([]StoreRow, error) {
+	l, err := cm.list(ctx, "3", "", "")
+	if err != nil {
+		return nil, err
+	}
+	var refs []FileRef
+	for _, f := range l {
+		if hasPrefixFold(f.Name, "Stores") {
+			refs = append(refs, f.FileRef)
+		}
+	}
+	if len(refs) == 0 {
+		return nil, fmt.Errorf("citymarketshops: no Stores file")
+	}
+	rc, err := cm.Open(ctx, newest(refs))
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return ParseStoresFile(rc, "citymarketshops")
+}
+
+func (cm *cityMarketShops) LatestPriceFull(ctx context.Context, storeID string) (FileRef, error) {
+	return cm.latest(ctx, "1", "PriceFull", storeID)
+}
+
+func (cm *cityMarketShops) LatestPromoFull(ctx context.Context, storeID string) (FileRef, error) {
+	return cm.latest(ctx, "2", "PromoFull", storeID)
+}
+
+// latest is the newest full-size file of the kind for the store: today's listing, then yesterday's.
+func (cm *cityMarketShops) latest(ctx context.Context, typ, kind, storeID string) (FileRef, error) {
+	tag := storeTag(storeID)
+	for _, day := range []string{"", time.Now().AddDate(0, 0, -1).Format("2006-01-02")} {
+		l, err := cm.list(ctx, typ, "1", day)
+		if err != nil {
+			return FileRef{}, err
+		}
+		var big []FileRef
+		for _, f := range l {
+			if hasPrefixFold(f.Name, kind) && strings.Contains(f.Name, tag) && f.kb >= cityShopsFullKB {
+				big = append(big, f.FileRef)
+			}
+		}
+		if len(big) > 0 {
+			return newest(big), nil
+		}
+	}
+	return FileRef{}, ErrNotPublished{"citymarketshops", storeID}
+}
+
+func (cm *cityMarketShops) Open(ctx context.Context, f FileRef) (io.ReadCloser, error) {
+	r, err := get(ctx, cm.c, f.URL)
 	if err != nil {
 		return nil, err
 	}

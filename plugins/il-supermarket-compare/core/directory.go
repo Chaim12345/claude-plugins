@@ -337,6 +337,13 @@ func (d *Directory) Nearby(lat, lon, radiusKm float64, max int) []NearStore {
 	var out []NearStore
 	for _, c := range cands {
 		if !DiscountBanners[c.Banner] && seen[c.Banner] >= 1 {
+			// another listing of a shop already chosen (the same chain name, metres apart)?
+			for k := range out {
+				if out[k].Banner == c.Banner && out[k].Key() != c.Key() && Km(out[k].Lat, out[k].Lon, c.Lat, c.Lon) <= DuplicateKm {
+					out[k].Alt = append(out[k].Alt, c.DirStore)
+					break
+				}
+			}
 			continue
 		}
 		seen[c.Banner]++
@@ -348,9 +355,13 @@ func (d *Directory) Nearby(lat, lon, radiusKm float64, max int) []NearStore {
 	return out
 }
 
+// DuplicateKm: two listings of one chain name this close are taken to be the same shop.
+const DuplicateKm = 0.3
+
 type NearStore struct {
 	DirStore
-	Km float64 `json:"km"`
+	Km  float64    `json:"km"`
+	Alt []DirStore `json:"alt,omitempty"` // other listings of the same shop, tried when this one publishes nothing
 }
 
 // ConfigFor turns a chosen set of stores into a sync config centred on the user's location.
@@ -361,8 +372,14 @@ func ConfigFor(stores []NearStore, place string, lat, lon float64) Config {
 	}
 	for _, s := range stores {
 		la, lo := s.Lat, s.Lon
-		cfg.Stores = append(cfg.Stores, StoreRef{Chain: s.Chain, StoreID: s.StoreID, ChainName: s.Banner, Branch: branchLabel(s.DirStore),
-			Address: strings.Trim(s.Address+", "+s.City, ", "), Lat: &la, Lon: &lo, Approx: s.Approx})
+		ref := StoreRef{Chain: s.Chain, StoreID: s.StoreID, ChainName: s.Banner, Branch: branchLabel(s.DirStore),
+			Address: strings.Trim(s.Address+", "+s.City, ", "), Lat: &la, Lon: &lo, Approx: s.Approx}
+		for _, a := range s.Alt {
+			ala, alo := a.Lat, a.Lon
+			ref.Alt = append(ref.Alt, StoreRef{Chain: a.Chain, StoreID: a.StoreID, ChainName: a.Banner, Branch: branchLabel(a),
+				Address: strings.Trim(a.Address+", "+a.City, ", "), Lat: &ala, Lon: &alo, Approx: a.Approx})
+		}
+		cfg.Stores = append(cfg.Stores, ref)
 	}
 	return cfg
 }

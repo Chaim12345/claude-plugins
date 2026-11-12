@@ -5,7 +5,8 @@ What the app does today, what to build next and why, and what needs help from ou
 ## Shipped
 
 **Data engine (Go, runs on the phone)**
-- 30+ chains from five kinds of portal: Shufersal, publishedprices, Bina, laibcatalog, PublishPrice, plus Wolt and Hazi Hinam. KT Market was added from the official list.
+- Every grocery chain in the official list (as tracked by the community scraper), from six kinds of portal: Shufersal, publishedprices (with each chain's published login, done automatically), Bina, laibcatalog, PublishPrice, City Market Shops, plus Wolt and Hazi Hinam. Added from the official list: KT Market and City Market's own portal (72 branches). Left out on purpose: the pharmacies (Super-Pharm, Good Pharm), and Meshnat Yosef's second portal, which publishes empty price files.
+- A branch that publishes nothing falls back to another listing of the same shop (same chain name, within 300 m), often on another portal.
 - Barcode matching with outlier filtering, and name rules for fresh produce and meat. Promotions cover price, X-for-Y, percent off, "second one for X" and club deals, with unit limits taken from the text or `RedemptionLimit`.
 - Metadata the chains publish but nobody uses: pack size (agreed by chains), manufacturer, made in Israel, "not sold here for N days", and "price changed N days ago" (see `core/README.md`).
 - Any location: an embedded store directory (1,253 branches) and an offline address index. On-device discovery adds the chains that block foreign IPs.
