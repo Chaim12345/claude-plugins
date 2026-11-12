@@ -80,3 +80,50 @@ func ResolveImage(dataDir, code string) string {
 	u, _ := core.ResolveImage(context.Background(), imgClient, dataDir, code)
 	return u
 }
+
+// Geocode looks an address up (cached under dataDir) and returns {"found":bool,"lat":..,"lon":..}.
+func Geocode(dataDir, query string) string {
+	g := core.NewGeocoder(dataDir + "/geocode.json")
+	ll, ok, err := g.Lookup(context.Background(), query)
+	g.Save()
+	if err != nil {
+		b, _ := json.Marshal(map[string]any{"found": false, "error": err.Error()})
+		return string(b)
+	}
+	b, _ := json.Marshal(map[string]any{"found": ok, "lat": ll[0], "lon": ll[1]})
+	return string(b)
+}
+
+// NearbyStores returns the stores worth comparing around a point, as JSON, from the store
+// directory built into the library. max <= 0 means 14.
+func NearbyStores(lat, lon, radiusKm float64, max int) (string, error) {
+	d, err := core.DefaultDirectory()
+	if err != nil {
+		return "", err
+	}
+	if max <= 0 {
+		max = 14
+	}
+	b, err := json.Marshal(d.Nearby(lat, lon, radiusKm, max))
+	return string(b), err
+}
+
+// SyncNear syncs the stores around a point (GPS or a geocoded address) and returns catalog.json's path.
+func SyncNear(dataDir, place string, lat, lon, radiusKm float64, l Listener) (string, error) {
+	d, err := core.DefaultDirectory()
+	if err != nil {
+		return "", err
+	}
+	near := d.Nearby(lat, lon, radiusKm, 14)
+	if len(near) == 0 {
+		return "", errNoStores
+	}
+	b, _ := json.Marshal(core.ConfigFor(near, place, lat, lon))
+	return Sync(dataDir, string(b), l)
+}
+
+var errNoStores = errorString("no known stores within this radius")
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }

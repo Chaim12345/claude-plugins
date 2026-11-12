@@ -44,7 +44,8 @@ type Event struct {
 }
 
 type Syncer struct {
-	DataDir string       // raw/ holds downloaded files, catalog.json is written here
+	DataDir string       // raw/ holds downloaded files, shared by every catalog
+	Catalog string       // catalog file name inside DataDir (default catalog.json)
 	Client  *http.Client // nil = default with a 5 minute timeout
 	OnEvent func(Event)  // optional; may be called from several goroutines
 	mu      sync.Mutex
@@ -96,7 +97,7 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 	wg.Wait()
 
 	// Nothing new since the last catalog? Then the answer is the catalog we already have.
-	if prev, err := LoadCatalog(s.DataDir); err == nil && unchanged(prev, cfg, results) {
+	if prev, err := LoadCatalogFile(s.catalogPath()); err == nil && unchanged(prev, cfg, results) {
 		s.emit(Event{Phase: "done", Message: "unchanged", Items: len(prev.Products), Millis: time.Since(start).Milliseconds()})
 		return prev, nil
 	}
@@ -168,7 +169,7 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 	}
 	s.emit(Event{Phase: "build", Items: len(products), Millis: time.Since(t).Milliseconds()})
 
-	if err := writeJSON(filepath.Join(s.DataDir, "catalog.json"), cat); err != nil {
+	if err := writeJSON(s.catalogPath(), cat); err != nil {
 		return nil, err
 	}
 	s.emit(Event{Phase: "done", Items: len(products), Millis: time.Since(start).Milliseconds()})
@@ -197,11 +198,11 @@ func (s *Syncer) fetch(ctx context.Context, p Portal, st StoreRef, raw string) (
 		return "", "", err
 	}
 	defer rc.Close()
-	tmp := dst + ".part"
-	out, err := os.Create(tmp)
+	out, err := os.CreateTemp(raw, ".dl-*") // unique: two syncs may fetch the same file at once
 	if err != nil {
 		return "", "", err
 	}
+	tmp := out.Name()
 	n, err := io.Copy(out, rc)
 	if cerr := out.Close(); err == nil {
 		err = cerr
@@ -289,9 +290,21 @@ func writeJSON(path string, v any) error {
 	return os.Rename(tmp, path)
 }
 
-// LoadCatalog reads the last catalog.json written by Sync.
+func (s *Syncer) catalogPath() string {
+	name := s.Catalog
+	if name == "" {
+		name = "catalog.json"
+	}
+	return filepath.Join(s.DataDir, name)
+}
+
+// LoadCatalog reads the default catalog.json written by Sync.
 func LoadCatalog(dataDir string) (*Catalog, error) {
-	b, err := os.ReadFile(filepath.Join(dataDir, "catalog.json"))
+	return LoadCatalogFile(filepath.Join(dataDir, "catalog.json"))
+}
+
+func LoadCatalogFile(path string) (*Catalog, error) {
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

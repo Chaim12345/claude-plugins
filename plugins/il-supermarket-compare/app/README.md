@@ -4,7 +4,7 @@ A Hebrew, right-to-left shopping app. You browse and search products, add them t
 
 `index.html` is a single page that reads `data.json` (the catalog built by `../core`). It runs in two modes:
 
-- **With the Go server** (`salzol serve -web ../app`): shows product photos and an "עדכון מחירים" (update prices) button. The button asks the server to fetch the newest price files and shows progress while it runs.
+- **With the Go server** (`salzol serve -web ../app`): you choose any location, either an address or your phone's GPS, plus a radius, and the app compares the stores around it. It also shows product photos and an "עדכון מחירים" (update prices) button. The button asks the server to fetch the newest price files and shows progress while it runs.
 - **Static** (any file host, or a Claude artifact): uses the `data.json` next to it, with no photos and no Sync button. The page detects which mode it's in by calling `/api/health`.
 
 ```bash

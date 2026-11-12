@@ -102,7 +102,24 @@ button { cursor: pointer; }
 .syncbar { max-width: 1240px; margin: 0 auto; padding-block: 0 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); font-size: 13px; color: var(--ink-2); }
 .syncbar b { color: var(--ink); }
 .syncbar .err { color: var(--bad); }
-@media (max-width: 760px) { .syncbtn { height: 36px; padding: 0 12px; font-size: 14px; } }
+.locbtn { height: 40px; border-radius: 20px; border: 1px solid var(--line); background: var(--surface); padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; max-width: 260px; min-width: 0; font-weight: 600; }
+.locbtn svg { width: 18px; height: 18px; flex: none; color: var(--brand); }
+.locbtn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.locbtn small { color: var(--ink-2); font-weight: 400; flex: none; }
+.locform { display: grid; gap: 10px; margin-top: 14px; }
+.locrow { display: flex; gap: 8px; }
+.locrow input { flex: 1; min-width: 0; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); padding: 0 12px; }
+.locrow select { height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); padding: 0 10px; }
+.btn { height: 44px; border-radius: 12px; border: 0; background: var(--brand); color: var(--brand-ink); font-weight: 700; padding: 0 16px; }
+.btn.ghost { background: var(--surface-2); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn.ghost svg { width: 18px; height: 18px; color: var(--brand); }
+.btn:disabled { opacity: .55; cursor: default; }
+.locmsg { font-size: 14px; color: var(--ink-2); min-height: 1.4em; }
+.locmsg.err { color: var(--bad); }
+.nearlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 32vh; overflow-y: auto; font-size: 14px; }
+.nearlist li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.nearlist small { color: var(--ink-2); }
+@media (max-width: 760px) { .locbtn { flex: 1; height: 36px; max-width: none; } .syncbtn { height: 36px; padding: 0 12px; font-size: 14px; } }
 .thumb .kg { position: absolute; top: 6px; left: 6px; font-family: var(--body); font-size: 12px; font-weight: 700; background: var(--surface); color: var(--ink); border-radius: 6px; padding: 1px 6px; }
 .pname { font-weight: 600; font-size: 14.5px; line-height: 1.3; min-height: 2.6em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; background: none; border: 0; padding: 0; text-align: right; }
 .tagrow { display: flex; align-items: flex-end; justify-content: space-between; gap: 6px; }
@@ -195,6 +212,7 @@ button { cursor: pointer; }
       </label>
         <button class="syncbtn" id="sync" hidden aria-label="עדכון מחירים מהרשתות"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.5L4 8"/><path d="M4 3v5h5"/><path d="M4 13a8 8 0 0 0 14.6 4.5L20 16"/><path d="M20 21v-5h-5"/></svg><span>עדכון מחירים</span></button>
       <div class="where">
+        <button class="locbtn" id="locBtn" hidden aria-label="שינוי מיקום"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span id="locName">בחירת מיקום</span><small id="locR"></small></button>
         <select id="area" aria-label="המיקום שלי"></select>
         <select id="radius" aria-label="מרחק מקסימלי">
           <option value="99">כל הסניפים</option>
@@ -248,7 +266,7 @@ button { cursor: pointer; }
     set(k, v) { try { localStorage.setItem("salzol:" + k, JSON.stringify(v)); } catch {} },
   };
 
-  const S = { server: false, syncing: false, D: null, byId: new Map(), q: "", cat: "all", sort: "pop", shown: 48, cart: {}, example: false, area: 0, radius: 99, off: new Set() };
+  const S = { server: false, locMode: false, loc: null, job: null, syncing: false, D: null, byId: new Map(), q: "", cat: "all", sort: "pop", shown: 48, cart: {}, example: false, area: 0, radius: 99, off: new Set() };
 
   function norm(s) { return s.replace(/["'׳״`]/g, "").replace(/\s+/g, " ").trim().toLowerCase(); }
   function km(a, b) {
@@ -265,8 +283,9 @@ button { cursor: pointer; }
   function qtyText(p, q) { return p.w ? `${q} ק״ג` : `${q}`; }
 
   // ---------- load ----------
-  const loadData = () => fetch("data.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
-  loadData().then(init).catch(() => {
+  S.loc = store.get("loc", null); S.job = store.get("job", null);
+  const loadData = () => fetch(S.job ? `data.json?job=${encodeURIComponent(S.job)}` : "data.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+  loadData().catch(() => { S.job = null; return loadData(); }).then(init).catch(() => {
     $("#grid").innerHTML = `<div class="empty">קובץ המחירים לא נטען. רעננו את הדף; אם זה חוזר, הנתונים של היום עוד לא פורסמו.</div>`;
   });
 
@@ -277,7 +296,7 @@ button { cursor: pointer; }
       S.byId.set(code, { code, name, cat, w, prices, picks, img: img || null, key: norm(name) });
     }
     S.area = store.get("area", 0) < D.areas.length ? store.get("area", 0) : 0;
-    S.radius = store.get("radius", 99);
+    S.radius = S.locMode ? 99 : store.get("radius", 99); // with a location, the server already picked stores by radius
     S.off = new Set(store.get("off", []));
     const saved = store.get("cart", null);
     if (saved && typeof saved === "object") { S.cart = saved; S.example = store.get("example", false); }
@@ -453,6 +472,7 @@ button { cursor: pointer; }
     else if (t.id === "more") { S.shown += 48; renderShop(); }
     else if (t.id === "clear" || t.id === "clear2") { S.cart = {}; S.example = false; store.set("cart", {}); store.set("example", false); renderShop(); renderCart(); }
     else if (t.id === "closeSheet") closeSheet();
+    else if (t.id === "scrim") closeSheet();
   });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && S.sheet) closeSheet(); });
   let qt; $("#q").addEventListener("input", e => { clearTimeout(qt); qt = setTimeout(() => { S.q = e.target.value; S.shown = 48; if (S.D) renderShop(); }, 120); });
@@ -482,24 +502,95 @@ button { cursor: pointer; }
   }
   async function pollSync() {
     try {
-      const st = await (await fetch("api/sync", { cache: "no-store" })).json();
+      const st = await (await fetch(`api/sync${S.job ? `?job=${encodeURIComponent(S.job)}` : ""}`, { cache: "no-store" })).json();
       setSyncUI(st);
       if (st.running) return setTimeout(pollSync, 700);
       S.syncing = false;
       if (!st.error) { S.D = null; init(await loadData()); setSyncUI(null); }
     } catch { S.syncing = false; setSyncUI({ error: "השרת לא עונה" }); }
   }
-  $("#sync").addEventListener("click", async () => {
+  async function startSync() {
     if (S.syncing) return;
     S.syncing = true; setSyncUI({ running: true, events: [] });
-    try { await fetch("api/sync", { method: "POST" }); } catch {}
+    const q = S.loc ? `?lat=${S.loc.lat}&lon=${S.loc.lon}&radius=${S.loc.radius}&place=${encodeURIComponent(S.loc.place)}` : "";
+    try {
+      const r = await fetch("api/sync" + q, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok) { S.syncing = false; return setSyncUI({ error: j.message || "העדכון נכשל" }); }
+      S.job = j.job; store.set("job", S.job);
+    } catch { S.syncing = false; return setSyncUI({ error: "השרת לא עונה" }); }
     pollSync();
-  });
+  }
+  $("#sync").addEventListener("click", startSync);
+
+  // ---------- location (server mode) ----------
+  function showLoc() {
+    $("#locName").textContent = S.loc ? S.loc.place : "בחירת מיקום";
+    $("#locR").textContent = S.loc ? `· ${S.loc.radius} ק״מ` : "";
+  }
+  const PIN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg>`;
+  function openLoc() {
+    const r = S.loc ? S.loc.radius : 4;
+    $("#sheetRoot").innerHTML = `<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="lh">
+      <h3 id="lh">איפה אתם קונים?</h3>
+      <div class="sub">נשווה את כל הסניפים של רשתות הדיסקאונט בטווח, ואת הסניף הקרוב של כל רשת אחרת.</div>
+      <form class="locform" id="locForm">
+        <div class="locrow"><input id="locQ" placeholder="כתובת, למשל הרצל 50, רמת גן" autocomplete="street-address" value="${S.loc && S.loc.typed ? esc(S.loc.place) : ""}"><button class="btn" id="locFind" type="submit">חיפוש</button></div>
+        <div class="locrow"><button class="btn ghost" id="locGps" type="button" style="flex:1">${PIN}המיקום הנוכחי שלי</button>
+          <select id="locRad" aria-label="טווח">${[2, 3, 4, 5, 8, 12].map(k => `<option value="${k}" ${k === r ? "selected" : ""}>עד ${k} ק״מ</option>`).join("")}</select></div>
+        <div class="locmsg" id="locMsg" aria-live="polite"></div>
+        <ul class="nearlist" id="nearList"></ul>
+        <div class="sheet-actions"><button class="btn" id="locGo" type="button" disabled>השוואה כאן</button><button class="close" id="closeSheet" type="button">ביטול</button></div>
+      </form></div></div>`;
+    S.sheet = "loc";
+    let cand = S.loc ? { ...S.loc } : null;
+    const msg = (t, err) => { $("#locMsg").textContent = t; $("#locMsg").classList.toggle("err", !!err); };
+    async function preview() {
+      if (!cand) return;
+      cand.radius = +$("#locRad").value;
+      msg("מחפש סניפים בסביבה…");
+      try {
+        const d = await (await fetch(`api/nearby?lat=${cand.lat}&lon=${cand.lon}&radius=${cand.radius}`)).json();
+        const st = d.stores || [];
+        if (!st.length) { $("#nearList").innerHTML = ""; $("#locGo").disabled = true; return msg("אין סניפים מוכרים בטווח הזה. נסו מרחק גדול יותר.", true); }
+        msg(`${st.length} סניפים להשוואה סביב ${cand.place}:`);
+        $("#nearList").innerHTML = st.map(s => `<li><span>${esc(s.b)} <small>${esc(s.n)}</small></span><small class="num">${s.km.toFixed(1)} ק״מ${s.approx ? "~" : ""}</small></li>`).join("");
+        $("#locGo").disabled = false;
+      } catch { msg("השרת לא עונה. נסו שוב בעוד רגע.", true); }
+    }
+    $("#locForm").addEventListener("submit", async e => {
+      e.preventDefault();
+      const q = $("#locQ").value.trim(); if (!q) return;
+      msg("מאתר את הכתובת…"); $("#locGo").disabled = true;
+      try {
+        const g = await (await fetch(`api/geocode?q=${encodeURIComponent(q)}`)).json();
+        if (!g.found) return msg("לא מצאנו את הכתובת. נסו ״רחוב ומספר, עיר״.", true);
+        cand = { place: q, lat: g.lat, lon: g.lon, typed: true }; preview();
+      } catch { msg("השרת לא עונה. נסו שוב בעוד רגע.", true); }
+    });
+    $("#locGps").addEventListener("click", () => {
+      if (!navigator.geolocation) return msg("הדפדפן לא מאפשר מיקום. הקלידו כתובת.", true);
+      msg("מאתר את המיקום שלכם…");
+      navigator.geolocation.getCurrentPosition(p => { cand = { place: "המיקום שלי", lat: +p.coords.latitude.toFixed(5), lon: +p.coords.longitude.toFixed(5) }; preview(); },
+        () => msg("לא קיבלנו הרשאת מיקום. הקלידו כתובת במקום.", true), { timeout: 15000, maximumAge: 300000 });
+    });
+    $("#locRad").addEventListener("change", preview);
+    $("#locGo").addEventListener("click", () => {
+      S.loc = cand; store.set("loc", S.loc); showLoc(); closeSheet(); startSync();
+    });
+    if (cand) preview(); else $("#locQ").focus();
+  }
+  $("#locBtn").addEventListener("click", openLoc);
   fetch("api/health", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(h => {
     if (!h || !h.sync) return;
     S.server = true; $("#sync").hidden = false; $("#syncbar").hidden = false;
-    if (S.D) { renderShop(); setSyncUI(null); }
-    fetch("api/sync").then(r => r.json()).then(st => { if (st.running) { S.syncing = true; pollSync(); } });
+    if (h.location) {
+      S.locMode = true; $("#locBtn").hidden = false; $("#area").hidden = true; $("#radius").hidden = true; S.radius = 99; showLoc();
+    }
+    if (S.D) { renderAll(); }
+    if (S.locMode && S.loc) startSync();            // refresh: fast when nothing new was published
+    else if (S.locMode && !S.loc) openLoc();         // first visit: ask where they shop
+    else fetch("api/sync").then(r => r.json()).then(st => { if (st.running) { S.syncing = true; pollSync(); } });
   }).catch(() => {});
 
   function route() {
