@@ -1,0 +1,48 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { compare, fmtStamp, norm, priceInfo, search, toProducts } from "./compare.ts";
+import type { Catalog } from "./types.ts";
+
+const cat: Catalog = {
+  priceDate: "2026-11-12", generatedAt: "", skipped: [], categories: [],
+  areas: [{ name: "x", lat: 32.08, lon: 34.81 }],
+  stores: ["A", "B", "C"].map((c, i) => ({ id: `${c}:${i}`, chain: c, branch: "", address: "", lat: 32.08, lon: 34.81 + i / 100, approx: false })),
+  products: [
+    ["111", "חלב 3% תנובה", "dairy", 0, [700, 650, 720], null, "111"],
+    ["222", "במבה 80 גרם", "snacks", 0, [450, null, 390], null, "222"],
+    ["f-tomato", "עגבניות", "produce", 1, [690, 790, 590], ["עגבניה", "עגבניה", "עגבניות"], null],
+  ],
+};
+
+test("norm strips Hebrew quote marks", () => {
+  assert.equal(norm(`קוטג' 5%  "תנובה"`), "קוטג 5% תנובה");
+});
+
+test("priceInfo finds cheapest active store", () => {
+  const p = toProducts(cat).get("222")!;
+  assert.deepEqual(priceInfo(p, [0, 1, 2]), { lo: 390, hi: 450, at: 2, n: 2 });
+  assert.equal(priceInfo(p, [1]).lo, null);
+});
+
+test("search filters by words and category, skips unsold", () => {
+  const ps = toProducts(cat);
+  assert.deepEqual(search(ps.values(), [0, 1, 2], "תנובה", "all", "pop").map(r => r[0].code), ["111"]);
+  assert.deepEqual(search(ps.values(), [1], "", "all", "cheap").map(r => r[0].code), ["111", "f-tomato"]);
+  assert.deepEqual(search(ps.values(), [0, 1, 2], "", "produce", "pop").map(r => r[0].code), ["f-tomato"]);
+});
+
+test("compare totals, like-for-like and split", () => {
+  const ps = toProducts(cat);
+  const c = compare(ps, { "111": 2, "222": 1, "f-tomato": 1.5 }, [0, 1, 2]);
+  // store C: 2*720 + 390 + 1.5*590 = 2715; A: 1400 + 450 + 1035 = 2885; B misses במבה: 1300 + 1185 = 2485
+  assert.deepEqual(c.rows.map(r => [r.i, r.total, r.missing.length]), [[2, 2715, 0], [0, 2885, 0], [1, 2485, 1]]);
+  assert.equal(c.common, 2); // milk and tomatoes are everywhere
+  assert.equal(c.fairLow, Math.min(1400 + 1035, 1300 + 1185, 1440 + 885)); // 2325 at C
+  assert.equal(c.split, 1300 + 390 + 885);
+  assert.equal(c.splitStores, 2);
+});
+
+test("fmtStamp", () => {
+  assert.equal(fmtStamp("202611120710"), "12.11 07:10");
+  assert.equal(fmtStamp(""), "");
+});

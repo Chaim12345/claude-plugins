@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["SalzolNativeModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.salzolnative.SalzolNativeModule"],
+    "gradleAarProjects": [{ "name": "salzol-go", "aarFilePath": "android/libs/salzol.aar" }]
+  }
+}
