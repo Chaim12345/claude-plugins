@@ -41,6 +41,17 @@ func init() {
 var ExtraChains = []string{"quik", "victory", "mahsanei", "hcohen", "wolt", "hazihinam",
 	"bareket", "kingstore", "maayan2000", "zolvebegadol", "supersapir", "shukhair", "shefa", "citymarket"}
 
+// Portal base URLs. They are variables so tests can point the clients at httptest servers.
+var (
+	quikURL = "https://prices.quik.co.il"
+	laibURL = "https://laibcatalog.co.il"
+)
+
+// hasPrefixFold reports whether a published file name starts with a file-type prefix, ignoring case.
+func hasPrefixFold(name, prefix string) bool {
+	return len(name) >= len(prefix) && strings.EqualFold(name[:len(prefix)], prefix)
+}
+
 func newExtraPortal(chain string, c *http.Client) (Portal, bool) {
 	jar := func() *http.Client {
 		j, _ := cookiejar.New(nil)
@@ -50,7 +61,7 @@ func newExtraPortal(chain string, c *http.Client) (Portal, bool) {
 	}
 	switch chain {
 	case "quik":
-		return &publishPrice{c: c, chain: chain, base: "https://prices.quik.co.il"}, true
+		return &publishPrice{c: c, chain: chain, base: quikURL}, true
 	case "victory":
 		return &laibcatalog{c: c, chain: chain, edis: []string{"7290696200003", "7290058103393"}}, true
 	case "mahsanei":
@@ -147,7 +158,7 @@ func (b *bina) LatestPriceFull(ctx context.Context, storeID string) (FileRef, er
 	}
 	var mine []FileRef
 	for _, f := range l {
-		if strings.HasPrefix(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
+		if hasPrefixFold(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
 			mine = append(mine, f)
 		}
 	}
@@ -187,8 +198,14 @@ type publishPrice struct {
 	base  string
 }
 
+// pubFilesRx finds the `const files = [...]` array the page embeds (one line in the original
+// scraper, which also reads the folder from `const path = '...'`). The next line holds the chain
+// list, which has "name" fields too, so the file names must come from the files array only.
+var pubFilesRx = regexp.MustCompile(`const files\s*=\s*(\[.*\])\s*;?`)
+
 func (p *publishPrice) index(ctx context.Context) ([]FileRef, error) {
-	h, err := getText(ctx, p.c, p.base+"/")
+	base := strings.TrimRight(p.base, "/")
+	h, err := getText(ctx, p.c, base+"/")
 	if err != nil {
 		return nil, err
 	}
@@ -196,9 +213,27 @@ func (p *publishPrice) index(ctx context.Context) ([]FileRef, error) {
 	if m == nil {
 		return nil, fmt.Errorf("%s: index format changed", p.chain)
 	}
+	var names []string
+	if fm := pubFilesRx.FindStringSubmatch(h); fm != nil {
+		var rows []struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal([]byte(fm[1]), &rows) == nil {
+			for _, r := range rows {
+				names = append(names, r.Name)
+			}
+		}
+	}
+	if names == nil { // the array's shape changed: fall back to every "name" on the page
+		for _, n := range carNameRx.FindAllStringSubmatch(h, -1) {
+			names = append(names, n[1])
+		}
+	}
 	var out []FileRef
-	for _, n := range carNameRx.FindAllStringSubmatch(h, -1) {
-		out = append(out, FileRef{Name: n[1], URL: fmt.Sprintf("%s/%s/%s", p.base, m[1], n[1])})
+	for _, n := range names {
+		if n != "" {
+			out = append(out, FileRef{Name: n, URL: fmt.Sprintf("%s/%s/%s", base, m[1], n)})
+		}
 	}
 	return out, nil
 }
@@ -210,7 +245,7 @@ func (p *publishPrice) Stores(ctx context.Context) ([]StoreRow, error) {
 	}
 	var st []FileRef
 	for _, f := range idx {
-		if strings.HasPrefix(f.Name, "Stores") {
+		if hasPrefixFold(f.Name, "Stores") {
 			st = append(st, f)
 		}
 	}
@@ -232,7 +267,7 @@ func (p *publishPrice) LatestPriceFull(ctx context.Context, storeID string) (Fil
 	}
 	var mine []FileRef
 	for _, f := range idx {
-		if strings.HasPrefix(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
+		if hasPrefixFold(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
 			mine = append(mine, f)
 		}
 	}
@@ -258,8 +293,6 @@ type laibcatalog struct {
 	edis  []string
 	files []FileRef
 }
-
-const laibURL = "https://laibcatalog.co.il"
 
 func (l *laibcatalog) list(ctx context.Context) ([]FileRef, error) {
 	if l.files != nil {
@@ -302,7 +335,7 @@ func (l *laibcatalog) Stores(ctx context.Context) ([]StoreRow, error) {
 	}
 	var st []FileRef
 	for _, f := range fs {
-		if strings.HasPrefix(f.Name, "Stores") {
+		if hasPrefixFold(f.Name, "Stores") {
 			st = append(st, f)
 		}
 	}
@@ -324,7 +357,7 @@ func (l *laibcatalog) LatestPriceFull(ctx context.Context, storeID string) (File
 	}
 	var mine []FileRef
 	for _, f := range fs {
-		if strings.HasPrefix(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
+		if hasPrefixFold(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
 			mine = append(mine, f)
 		}
 	}
@@ -383,7 +416,7 @@ func (w *wolt) Stores(ctx context.Context) ([]StoreRow, error) {
 	}
 	var st []FileRef
 	for _, f := range fs {
-		if strings.HasPrefix(f.Name, "Stores") {
+		if hasPrefixFold(f.Name, "Stores") {
 			st = append(st, f)
 		}
 	}
@@ -405,7 +438,7 @@ func (w *wolt) LatestPriceFull(ctx context.Context, storeID string) (FileRef, er
 	}
 	var mine []FileRef
 	for _, f := range fs {
-		if strings.HasPrefix(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
+		if hasPrefixFold(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
 			mine = append(mine, f)
 		}
 	}
@@ -424,13 +457,15 @@ func (w *wolt) Open(ctx context.Context, f FileRef) (io.ReadCloser, error) {
 }
 
 // ---------------- Hazi Hinam (shop.hazi-hinam.co.il/Prices) ----------------
-// A paged HTML table: column 3 is the file name, column 6 the download link.
+// A paged HTML table, filtered by query string: d=<YYYY-MM-DD>, t=<type: 3 Stores, 1 Price/PriceFull,
+// 2 Promo>, f=null, and &p=<page>. Column 1 is the date, column 3 the file name (without extension;
+// the original scraper appends ".xml.gz"), column 6 the download link. Source: scrappers/hazihinam.py.
 
-const haziURL = "https://shop.hazi-hinam.co.il/Prices"
+var haziURL = "https://shop.hazi-hinam.co.il/Prices"
 
 type haziHinam struct {
 	c     *http.Client
-	files []FileRef
+	files map[string][]FileRef // by "type|date"
 }
 
 var (
@@ -440,20 +475,28 @@ var (
 	tagRx      = regexp.MustCompile(`<[^>]+>`)
 )
 
-func (h *haziHinam) list(ctx context.Context) ([]FileRef, error) {
-	if h.files != nil {
-		return h.files, nil
+// haziMaxPages bounds one day's listing (20 rows a page).
+const haziMaxPages = 150
+
+// list returns one day's files of one type, following the pages until one adds nothing new.
+func (h *haziHinam) list(ctx context.Context, typ, day string) ([]FileRef, error) {
+	key := typ + "|" + day
+	if fs, ok := h.files[key]; ok {
+		return fs, nil
 	}
 	var out []FileRef
-	for page := 1; page <= 40; page++ {
-		body, err := getText(ctx, h.c, fmt.Sprintf("%s?p=%d", haziURL, page))
+	seen := map[string]bool{}
+	base, _ := url.Parse(haziURL)
+	for page := 1; page <= haziMaxPages; page++ {
+		q := url.Values{"d": {day}, "t": {typ}, "f": {"null"}, "p": {fmt.Sprint(page)}}
+		body, err := getText(ctx, h.c, haziURL+"?"+q.Encode())
 		if err != nil {
 			if page == 1 {
 				return nil, err
 			}
 			break
 		}
-		n := 0
+		added := 0
 		for _, row := range haziRowRx.FindAllStringSubmatch(body, -1) {
 			cells := haziCellRx.FindAllStringSubmatch(row[1], -1)
 			if len(cells) < 6 {
@@ -464,37 +507,56 @@ func (h *haziHinam) list(ctx context.Context) ([]FileRef, error) {
 			if name == "" || href == nil {
 				continue
 			}
+			if !strings.Contains(name, ".") {
+				name += ".xml.gz"
+			}
 			u, err := url.Parse(strings.ReplaceAll(href[1], "&amp;", "&"))
-			if err != nil {
+			if err != nil || seen[name] {
 				continue
 			}
-			base, _ := url.Parse(haziURL)
+			seen[name] = true
 			out = append(out, FileRef{Name: name, URL: base.ResolveReference(u).String()})
-			n++
+			added++
 		}
-		if n == 0 {
+		if added == 0 {
 			break
 		}
 	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("hazihinam: no files listed")
+	if h.files == nil {
+		h.files = map[string][]FileRef{}
 	}
-	h.files = out
+	h.files[key] = out
 	return out, nil
 }
 
+// haziDays are the listing dates to try, newest first (the original asks for today and yesterday).
+func haziDays() []string {
+	now := time.Now().In(time.FixedZone("IL", 3*3600)) // Israel is UTC+2/+3; yesterday covers the difference
+	return []string{now.Format("2006-01-02"), now.AddDate(0, 0, -1).Format("2006-01-02")}
+}
+
 func (h *haziHinam) Stores(ctx context.Context) ([]StoreRow, error) {
-	fs, err := h.list(ctx)
-	if err != nil {
-		return nil, err
-	}
 	var st []FileRef
-	for _, f := range fs {
-		if strings.HasPrefix(f.Name, "Stores") {
-			st = append(st, f)
+	var lastErr error
+	for _, day := range haziDays() {
+		fs, err := h.list(ctx, "3", day)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		for _, f := range fs {
+			if hasPrefixFold(f.Name, "Stores") {
+				st = append(st, f)
+			}
+		}
+		if len(st) > 0 {
+			break
 		}
 	}
 	if len(st) == 0 {
+		if lastErr != nil {
+			return nil, fmt.Errorf("hazihinam: %w", lastErr)
+		}
 		return nil, fmt.Errorf("hazihinam: no Stores file")
 	}
 	rc, err := h.Open(ctx, newest(st))
@@ -506,20 +568,27 @@ func (h *haziHinam) Stores(ctx context.Context) ([]StoreRow, error) {
 }
 
 func (h *haziHinam) LatestPriceFull(ctx context.Context, storeID string) (FileRef, error) {
-	fs, err := h.list(ctx)
-	if err != nil {
-		return FileRef{}, err
-	}
-	var mine []FileRef
-	for _, f := range fs {
-		if strings.HasPrefix(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
-			mine = append(mine, f)
+	var lastErr error
+	for _, day := range haziDays() {
+		fs, err := h.list(ctx, "1", day)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var mine []FileRef
+		for _, f := range fs {
+			if hasPrefixFold(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
+				mine = append(mine, f)
+			}
+		}
+		if len(mine) > 0 {
+			return newest(mine), nil
 		}
 	}
-	if len(mine) == 0 {
-		return FileRef{}, ErrNotPublished{"hazihinam", storeID}
+	if lastErr != nil {
+		return FileRef{}, fmt.Errorf("hazihinam: %w", lastErr)
 	}
-	return newest(mine), nil
+	return FileRef{}, ErrNotPublished{"hazihinam", storeID}
 }
 
 func (h *haziHinam) Open(ctx context.Context, f FileRef) (io.ReadCloser, error) {

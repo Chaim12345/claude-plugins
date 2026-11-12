@@ -38,6 +38,7 @@ export function Header() {
         </Pressable>
       </View>
       {status ? <T numberOfLines={1} style={{ fontSize: 12.5, color: sync.error ? t.bad : t.ink2 }}>{status}</T> : null}
+      {sync.note && !sync.running ? <T numberOfLines={1} style={{ fontSize: 12, color: t.ink2 }}>{sync.note}</T> : null}
     </View>
   );
 }

@@ -18,6 +18,14 @@ The sync engine behind the סל זול app, written in Go. It downloads the chai
 - **The offline index** (`geoindex.bin.gz`, 1.1 MB, built with `salzol osmindex build` from an OpenStreetMap extract; see `osmindex/README.md`) is tried first for every address. It places 840 of 1,163 branch addresses at street level or better, against 731 for the online services, and agrees with them within 1 km 94% of the time. Lookups take microseconds and need no network. Online services (Nominatim and Photon, 1 request/second each) are used only for what it can't place.
 - **The user's location:** a typed address goes to the offline index, then online (`/api/geocode` or `mobile.Geocode`). On the phone, its built-in geocoder is tried first. GPS needs no lookup.
 
+## Store discovery (on the phone)
+
+Victory, Carrefour/Yayno Bitan, Hazi Hinam, Mahsanei HaShuk, H. Cohen and Quik publish through portals that refuse non-Israeli IPs, so they are missing from the embedded `directory.json`. A phone in Israel finds them itself: `mobile.DiscoverStores` downloads those chains' Stores files, places each branch (offline index first, at most 40 online lookups, otherwise the city centre) and writes `<dataDir>/directory-extra.json`. `core.LoadDirectory(dataDir)` returns the embedded directory plus that file (the file wins on the same `chain:store` key), and `NearbyStores`, `SyncNear` and `CityCentre` use it.
+
+- **Which chains:** computed, not listed: every key in `ChainNames` with no branch in the embedded directory, minus pharmacies (`DiscoverableChains`). Rebuilding `directory.json` with those chains shrinks the list.
+- **When:** a chain is due when the merged directory has no branch of it, or the extra file is older than 7 days. A chain tried in the last 6 hours is not retried, so an unreachable portal isn't hit on every launch. When nothing is due the call returns at once without network.
+- **Failures:** per chain, in the returned summary (`counts`, `errors`, `names`); a failed chain keeps the branches found earlier, and sync is never affected.
+
 ## Speed
 
 A cold sync of 8 branches downloads 3.6 MB and finishes in about 5.6 s on a cloud VM: downloads take 0.3–1 s per store, run one chain per goroutine, and parse at about 0.6 s per store in parallel; matching takes 0.5 s. When the portals have nothing new, Sync returns the existing catalog after checking each store's file list (about 3 s, all network). Expect a phone to parse 2–4 times slower than the VM.
@@ -58,7 +66,9 @@ gomobile bind -target=ios -o Salzol.xcframework ./mobile              # needs Xc
 The `mobile` package exposes:
 
 - `Geocode(dataDir, address)`
-- `NearbyStores(lat, lon, radiusKm, max)`
+- `NearbyStores(dataDir, lat, lon, radiusKm, max)`
+- `CityCentre(dataDir, city)`
+- `DiscoverStores(dataDir, listener)`: see "Store discovery" below
 - `SyncNear(dataDir, place, lat, lon, radiusKm, listener)`
 - `Sync(dataDir, configJSON, listener)`
 - `CancelSync()`

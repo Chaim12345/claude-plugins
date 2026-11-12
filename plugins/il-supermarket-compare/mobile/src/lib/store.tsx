@@ -1,10 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { compare, toProducts, type Comparison } from "./compare";
+import { addedCount, discoverLine, isDiscovering, nextNote, shouldCheckDiscovery, type DiscoverResult } from "./discover";
 import { engine } from "./engine";
 import type { Cart, Catalog, Place, Product, SyncEvent } from "./types";
 
-type SyncState = { running: boolean; events: SyncEvent[]; error: string | null };
+/** note: a short, one-time remark about store discovery ("לא הצלחנו להוסיף: ..."); it never blocks a sync. */
+type SyncState = { running: boolean; events: SyncEvent[]; error: string | null; note?: string | null };
+
+const sleep = (ms: number) => new Promise<void>(res => setTimeout(res, ms));
 
 type Ctx = {
   catalog: Catalog | null;
@@ -44,13 +48,45 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [sync, setSync] = useState<SyncState>({ running: false, events: [], error: null });
   const [ready, setReady] = useState(false);
   const busy = useRef(false);
+  const lastDiscover = useRef<number | null>(null);
+  const shownNote = useRef<string | null>(null);
+  const resync = useRef<((p: Place | null) => void) | null>(null);
+
+  // Discovery is allowed to hold the first sync back for this long; after that the sync goes ahead
+  // with the stores it has, and runs again if discovery finds something later.
+  const DISCOVER_WAIT_MS = 45_000;
+
+  const noteFrom = useCallback((r: DiscoverResult | null) => {
+    const n = r ? nextNote(shownNote.current, r) : shownNote.current ? null : "לא הצלחנו להוסיף סניפים חדשים";
+    if (n) {
+      shownNote.current = n;
+      setSync(s => ({ ...s, note: n }));
+    }
+  }, []);
+
+  // Adds the stores of the chains the built-in directory lacks (Victory, Carrefour, ...). Go decides
+  // whether anything is due; a failure never stops the sync.
+  const discover = useCallback(async (p: Place | null) => {
+    if (!engine.discover || !shouldCheckDiscovery(lastDiscover.current, Date.now())) return;
+    lastDiscover.current = Date.now();
+    const run = engine.discover(e => setSync(s => ({ ...s, events: [...s.events, e] }))).then(r => r, () => null);
+    const first = await Promise.race([run, sleep(DISCOVER_WAIT_MS).then(() => undefined)]);
+    if (first !== undefined) return noteFrom(first);
+    run.then(async r => {
+      noteFrom(r);
+      if (!r || addedCount(r) === 0) return;
+      for (let i = 0; i < 60 && busy.current; i++) await sleep(2000); // let the running sync finish first
+      resync.current?.(p);
+    });
+  }, [noteFrom]);
 
   const runSyncFor = useCallback(async (p: Place | null) => {
     if (busy.current) return;
     if (!p && engine.kind === "device") return; // the phone needs a location to choose stores
     busy.current = true;
-    setSync({ running: true, events: [], error: null });
+    setSync(s => ({ running: true, events: [], error: null, note: s.note }));
     try {
+      await discover(p);
       const c = await engine.sync(p, e => setSync(s => ({ ...s, events: [...s.events, e] })));
       setCatalog(c);
       setSync(s => ({ ...s, running: false }));
@@ -59,7 +95,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     } finally {
       busy.current = false;
     }
-  }, []);
+  }, [discover]);
+  resync.current = runSyncFor;
 
   // Start-up: saved state first, then the last catalog, then a refresh (fast when nothing is new).
   useEffect(() => {
@@ -110,6 +147,7 @@ export function useData(): Ctx {
 /** One-line description of a running sync, for the header. */
 export function syncLine(s: SyncState, storeCount: number): string {
   const ev = s.events;
+  if (isDiscovering(ev.map(e => e.phase))) return discoverLine([...ev].reverse().find(e => e.phase === "discover")?.message);
   const parsed = ev.filter(e => e.phase === "parse").length;
   if (parsed) return `מעבד מחירונים… ${parsed} סניפים`;
   const checked = new Set(ev.filter(e => ["download", "cached", "skip"].includes(e.phase)).map(e => e.store)).size;

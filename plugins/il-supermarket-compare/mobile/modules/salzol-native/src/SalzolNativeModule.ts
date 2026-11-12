@@ -7,6 +7,13 @@ type Events = { onSyncEvent(e: SyncEventPayload): void };
 declare class SalzolNativeModule extends NativeModule<Events> {
   syncNear(place: string, lat: number, lon: number, radiusKm: number): Promise<string>;
   nearbyStores(lat: number, lon: number, radiusKm: number, max: number): Promise<string>;
+  /**
+   * Adds the stores of chains whose price portals only answer from Israel (Victory, Carrefour,
+   * Hazi Hinam, ...) to the on-device directory: {"counts","errors","names","skipped"} as JSON.
+   * A quick no-op when nothing is due. Progress arrives as onSyncEvent events. Absent in native
+   * builds made before it was added.
+   */
+  discoverStores?(): Promise<string>;
   lastCatalog(): Promise<string | null>;
   resolveImage(code: string): Promise<string>;
   cancelSync(): void;

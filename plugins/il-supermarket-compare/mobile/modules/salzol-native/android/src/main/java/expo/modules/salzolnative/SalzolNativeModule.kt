@@ -36,7 +36,23 @@ class SalzolNativeModule : Module() {
     }
 
     AsyncFunction("nearbyStores") { lat: Double, lon: Double, radiusKm: Double, max: Int ->
-      return@AsyncFunction Mobile.nearbyStores(lat, lon, radiusKm, max.toLong())
+      return@AsyncFunction Mobile.nearbyStores(dataDir.absolutePath, lat, lon, radiusKm, max.toLong())
+    }
+
+    // Adds the stores of chains whose portals only answer from Israel (Victory, Carrefour, Hazi
+    // Hinam, ...) to the on-device directory. Returns the summary JSON; a no-op when nothing is due.
+    // Progress goes out on the same onSyncEvent channel ("discover", "stores", "geocode", "skip").
+    AsyncFunction("discoverStores") {
+      val listener = object : Listener {
+        override fun onEvent(eventJSON: String) {
+          this@SalzolNativeModule.sendEvent("onSyncEvent", mapOf("json" to eventJSON))
+        }
+      }
+      try {
+        return@AsyncFunction Mobile.discoverStores(dataDir.absolutePath, listener)
+      } catch (e: Exception) {
+        throw CodedException("ERR_DISCOVER", e.message ?: "discovery failed", e)
+      }
     }
 
     // The catalog from the last successful sync, or null.
@@ -55,9 +71,9 @@ class SalzolNativeModule : Module() {
       return@AsyncFunction Mobile.geocode(dataDir.absolutePath, query)
     }
 
-    // A city's centre estimated from the built-in store directory (no network).
+    // A city's centre estimated from the store directory, embedded plus discovered (no network).
     AsyncFunction("cityCentre") { city: String ->
-      return@AsyncFunction Mobile.cityCentre(city)
+      return@AsyncFunction Mobile.cityCentre(dataDir.absolutePath, city)
     }
 
     Function("cancelSync") {

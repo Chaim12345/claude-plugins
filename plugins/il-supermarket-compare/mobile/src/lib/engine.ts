@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { Platform } from "react-native";
 import Native from "../../modules/salzol-native";
+import { parseDiscovery, type DiscoverResult } from "./discover";
 import { chooseCandidate, typedCity, type LatLon } from "./geo";
 import type { Catalog, MoreResult, NearStore, Place, SyncEvent } from "./types";
 
@@ -15,6 +16,12 @@ export interface Engine {
   /** The catalog from the last sync, if any, without touching the network. */
   cached(place: Place | null): Promise<Catalog | null>;
   sync(place: Place | null, onEvent: (e: SyncEvent) => void): Promise<Catalog>;
+  /**
+   * Device engine only: adds the stores of chains whose portals refuse non-Israeli IPs to the
+   * on-device directory (a quick no-op when nothing is due). Absent on the server engine, whose
+   * directory the server maintains, and in native builds that predate it.
+   */
+  discover?(onEvent: (e: SyncEvent) => void): Promise<DiscoverResult>;
   nearby(lat: number, lon: number, radiusKm: number): Promise<NearStore[]>;
   geocode(address: string): Promise<Geocoded | null>;
   imageUrl(code: string): string | null;
@@ -78,6 +85,14 @@ function deviceEngine(): Engine {
         sub.remove();
       }
     },
+    discover: m.discoverStores ? async onEvent => {
+      const sub = m.addListener("onSyncEvent", e => { try { onEvent(JSON.parse(e.json)); } catch { /* ignore malformed */ } });
+      try {
+        return parseDiscovery(await m.discoverStores!());
+      } finally {
+        sub.remove();
+      }
+    } : undefined,
     async nearby(lat, lon, r) { return JSON.parse(await m.nearbyStores(lat, lon, r, 14)) as NearStore[]; },
     // The phone's own geocoder first, checked against the typed city's centre (from the built-in
     // store directory, offline); OpenStreetMap through the Go core when it's missing, refused or

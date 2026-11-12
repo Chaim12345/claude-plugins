@@ -95,9 +95,10 @@ func Geocode(dataDir, query string) string {
 }
 
 // NearbyStores returns the stores worth comparing around a point, as JSON, from the store
-// directory built into the library. max <= 0 means 14.
-func NearbyStores(lat, lon, radiusKm float64, max int) (string, error) {
-	d, err := core.DefaultDirectory()
+// directory built into the library plus the chains discovered on this device (see DiscoverStores).
+// max <= 0 means 14.
+func NearbyStores(dataDir string, lat, lon, radiusKm float64, max int) (string, error) {
+	d, err := core.LoadDirectory(dataDir)
 	if err != nil {
 		return "", err
 	}
@@ -110,7 +111,7 @@ func NearbyStores(lat, lon, radiusKm float64, max int) (string, error) {
 
 // SyncNear syncs the stores around a point (GPS or a geocoded address) and returns catalog.json's path.
 func SyncNear(dataDir, place string, lat, lon, radiusKm float64, l Listener) (string, error) {
-	d, err := core.DefaultDirectory()
+	d, err := core.LoadDirectory(dataDir)
 	if err != nil {
 		return "", err
 	}
@@ -122,6 +123,34 @@ func SyncNear(dataDir, place string, lat, lon, radiusKm float64, l Listener) (st
 	return Sync(dataDir, string(b), l)
 }
 
+var discoverMu sync.Mutex
+
+// DiscoverStores adds the stores of chains whose price portals the embedded directory lacks
+// (they refuse non-Israeli IPs, so they can only be fetched from a phone in Israel) to
+// dataDir/directory-extra.json. It does nothing, quickly and offline, when nothing is due: every
+// such chain has stores and the file is under 7 days old. Progress arrives on the listener as
+// core.Event JSON ("discover" first, then "stores", "geocode", "skip"). The result is JSON:
+// {"counts":{"victory":52},"errors":{"hazihinam":"..."},"names":{"victory":"ויקטורי"},"skipped":false}.
+// A chain that fails is reported in "errors"; only a cancelled or timed-out run returns an error.
+func DiscoverStores(dataDir string, l Listener) (string, error) {
+	discoverMu.Lock()
+	defer discoverMu.Unlock()
+	ctx, c := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer c()
+	var on func(core.Event)
+	if l != nil {
+		on = func(e core.Event) {
+			b, _ := json.Marshal(e)
+			l.OnEvent(string(b))
+		}
+	}
+	geo := core.NewGeocoder(dataDir + "/geocode.json")
+	sum, err := core.RefreshExtra(ctx, dataDir, geo, &http.Client{Timeout: 90 * time.Second}, on, time.Now())
+	geo.Save()
+	b, _ := json.Marshal(sum)
+	return string(b), err
+}
+
 var errNoStores = errorString("no known stores within this radius")
 
 type errorString string
@@ -129,9 +158,10 @@ type errorString string
 func (e errorString) Error() string { return string(e) }
 
 // CityCentre returns {"found":bool,"lat":..,"lon":..}: the centre of a city estimated from the
-// built-in store directory, with no network. The app uses it to check its own geocoder's answers.
-func CityCentre(city string) string {
-	d, err := core.DefaultDirectory()
+// store directory (embedded plus discovered), with no network. The app uses it to check its own
+// geocoder's answers.
+func CityCentre(dataDir, city string) string {
+	d, err := core.LoadDirectory(dataDir)
 	if err != nil {
 		return `{"found":false}`
 	}

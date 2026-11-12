@@ -20,6 +20,9 @@ import (
 //   - url.publishedprices.co.il (public per-chain usernames, empty password)
 //   - Carrefour (incl. Carrefour City / Market)
 
+// carrefourURL is a variable so tests can point the client at a test server.
+var carrefourURL = "https://prices.carrefour.co.il"
+
 const userAgent = "salzol/0.1 (personal grocery price comparison)"
 
 // PublishedPricesUsers maps the portal username to the chain's Hebrew name.
@@ -68,7 +71,7 @@ func NewPortal(chain string, client *http.Client) (Portal, error) {
 	case "shufersal":
 		return &shufersal{c: client}, nil
 	case "carrefour": // Carrefour and Yayno Bitan
-		return &publishPrice{c: client, chain: chain, base: "https://prices.carrefour.co.il"}, nil
+		return &publishPrice{c: client, chain: chain, base: carrefourURL}, nil
 	}
 	if p, ok := newExtraPortal(chain, client); ok {
 		return p, nil
@@ -349,5 +352,5 @@ func (p *publishedPrices) Open(ctx context.Context, f FileRef) (io.ReadCloser, e
 // ---------------- Carrefour / PublishPrice ----------------
 // See publishPrice in portals_extra.go. These two patterns parse its index page.
 
-var carPathRx = regexp.MustCompile(`const path = '(\d+)'`)
+var carPathRx = regexp.MustCompile(`const path = ['"]([^'"]+)['"]`)
 var carNameRx = regexp.MustCompile(`"name":"([^"]+)"`)

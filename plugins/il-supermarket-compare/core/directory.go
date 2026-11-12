@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -102,13 +103,15 @@ var notSupermarketRx = regexp.MustCompile(`(?i)(^|\s)BE(\s|$)|אונליין|onl
 
 // ---------------- building ----------------
 
+// cityNamesURL is the CBS localities list; a variable so tests can serve their own.
+var cityNamesURL = "https://data.gov.il/api/3/action/datastore_search?resource_id=5c78e9fa-c2e2-4771-93ff-7f400a12f7ba&limit=5000"
+
 // CityNames maps CBS locality codes to Hebrew names (store files often give the city as a code).
 func CityNames(ctx context.Context, client *http.Client) (map[string]string, error) {
 	if client == nil {
 		client = &http.Client{Timeout: time.Minute}
 	}
-	u := "https://data.gov.il/api/3/action/datastore_search?resource_id=5c78e9fa-c2e2-4771-93ff-7f400a12f7ba&limit=5000"
-	resp, err := get(ctx, client, u)
+	resp, err := get(ctx, client, cityNamesURL)
 	if err != nil {
 		return nil, err
 	}
@@ -163,8 +166,20 @@ func cityFor(r StoreRow, codes map[string]string, names []string) string {
 // reported through onEvent and left out. Geocodes are cached in geo, so a rebuild only asks about
 // new branches.
 func BuildDirectory(ctx context.Context, chains []string, geo *Geocoder, client *http.Client, onEvent func(Event)) (*Directory, error) {
+	d, _, err := buildDirectory(ctx, chains, geo, client, onEvent, -1)
+	return d, err
+}
+
+// buildDirectory is BuildDirectory's body. It also reports each failed chain's error. maxOnline
+// limits the branches that may go to the (rate-limited) online geocoders; -1 means no limit. With a
+// limit, a branch the offline index and that budget can't place gets its city's centre from the
+// embedded directory, so a phone never waits minutes on geocoding.
+func buildDirectory(ctx context.Context, chains []string, geo *Geocoder, client *http.Client, onEvent func(Event), maxOnline int) (*Directory, map[string]error, error) {
+	var emitMu sync.Mutex // chains and geocoding workers report concurrently; callbacks see one event at a time
 	emit := func(e Event) {
 		if onEvent != nil {
+			emitMu.Lock()
+			defer emitMu.Unlock()
 			onEvent(e)
 		}
 	}
@@ -183,6 +198,7 @@ func BuildDirectory(ctx context.Context, chains []string, geo *Geocoder, client 
 
 	var mu sync.Mutex
 	var rows []StoreRow
+	chainErrs := map[string]error{}
 	var wg sync.WaitGroup
 	for _, ch := range chains {
 		wg.Add(1)
@@ -195,6 +211,9 @@ func BuildDirectory(ctx context.Context, chains []string, geo *Geocoder, client 
 			}
 			if err != nil {
 				emit(Event{Phase: "skip", Store: ch, Message: err.Error()})
+				mu.Lock()
+				chainErrs[ch] = err
+				mu.Unlock()
 				return
 			}
 			emit(Event{Phase: "stores", Store: ch, Items: len(rs)})
@@ -215,6 +234,33 @@ func BuildDirectory(ctx context.Context, chains []string, geo *Geocoder, client 
 		workers = 1
 	}
 	jobs := make(chan int)
+	var online int64
+	var embedded struct {
+		once sync.Once
+		d    *Directory
+	}
+	locate := func(addr, city string) ([2]float64, bool, bool) {
+		if maxOnline < 0 {
+			return geo.LocateStore(ctx, addr, city)
+		}
+		if city != "" && addr != "" && !strings.HasPrefix(addr, "http") {
+			if ll, ok := offlinePlace(addr, city); ok {
+				return ll, true, true
+			}
+		}
+		if atomic.AddInt64(&online, 1) <= int64(maxOnline) {
+			if ll, exact, ok := geo.LocateStore(ctx, addr, city); ok {
+				return ll, exact, ok
+			}
+		}
+		embedded.once.Do(func() { embedded.d, _ = DefaultDirectory() })
+		if embedded.d != nil {
+			if la, lo, ok := embedded.d.CityCentre(city); ok {
+				return [2]float64{la, lo}, false, true
+			}
+		}
+		return [2]float64{}, false, false
+	}
 	var done int64
 	var dmu sync.Mutex
 	var gwg sync.WaitGroup
@@ -226,7 +272,7 @@ func BuildDirectory(ctx context.Context, chains []string, geo *Geocoder, client 
 				r := rows[i]
 				city := cityFor(r, codes, names)
 				s := DirStore{Chain: r.Chain, StoreID: r.StoreID, Banner: banner(r.Chain, r), Name: r.Name, Address: r.Address, City: city}
-				if ll, exact, ok := geo.LocateStore(ctx, r.Address, city); ok {
+				if ll, exact, ok := locate(r.Address, city); ok {
 					s.Lat, s.Lon, s.Approx = ll[0], ll[1], !exact
 				}
 				out[i] = &s
@@ -255,14 +301,14 @@ func BuildDirectory(ctx context.Context, chains []string, geo *Geocoder, client 
 	gwg.Wait()
 	geo.Save()
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return nil, nil, ctx.Err()
 	}
 	for _, s := range out {
 		if s != nil {
 			d.Stores = append(d.Stores, *s)
 		}
 	}
-	return d, nil
+	return d, chainErrs, nil
 }
 
 // ---------------- choosing stores ----------------

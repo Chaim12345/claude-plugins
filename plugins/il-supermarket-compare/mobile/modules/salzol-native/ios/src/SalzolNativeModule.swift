@@ -29,9 +29,24 @@ public class SalzolNativeModule: Module {
 
     AsyncFunction("nearbyStores") { (lat: Double, lon: Double, radiusKm: Double, max: Int) -> String in
       var error: NSError?
-      let json = MobileNearbyStores(lat, lon, radiusKm, max, &error)
+      let json = MobileNearbyStores(self.dataDir, lat, lon, radiusKm, max, &error)
       if let error = error {
         throw Exception(name: "ERR_NEARBY", description: error.localizedDescription)
+      }
+      return json
+    }
+
+    // Adds the stores of chains whose portals only answer from Israel (Victory, Carrefour, Hazi
+    // Hinam, ...) to the on-device directory. Returns the summary JSON; a no-op when nothing is due.
+    // Progress goes out on the same onSyncEvent channel.
+    AsyncFunction("discoverStores") { () -> String in
+      let listener = SyncListener { [weak self] json in
+        self?.sendEvent("onSyncEvent", ["json": json])
+      }
+      var error: NSError?
+      let json = MobileDiscoverStores(self.dataDir, listener, &error)
+      if let error = error {
+        throw Exception(name: "ERR_DISCOVER", description: error.localizedDescription)
       }
       return json
     }
@@ -50,7 +65,7 @@ public class SalzolNativeModule: Module {
     }
 
     AsyncFunction("cityCentre") { (city: String) -> String in
-      return MobileCityCentre(city)
+      return MobileCityCentre(self.dataDir, city)
     }
 
     Function("cancelSync") {
