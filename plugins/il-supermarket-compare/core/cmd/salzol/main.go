@@ -2,6 +2,7 @@
 //
 //	salzol sync  [-data DIR] [-config stores.json]          download what's new, write DIR/catalog.json
 //	salzol serve [-data DIR] [-config stores.json] [-web DIR] [-addr :8080]
+//	salzol osmindex build|eval ...                            offline geocoding index from an OSM extract
 //	salzol stores CHAIN                                       list a chain's branches (to build a config)
 package main
 
@@ -19,6 +20,7 @@ import (
 	"strings"
 
 	core "github.com/Chaim12345/claude-plugins/plugins/il-supermarket-compare/core"
+	"github.com/Chaim12345/claude-plugins/plugins/il-supermarket-compare/core/osmindex"
 )
 
 func main() {
@@ -53,6 +55,10 @@ func main() {
 		dirPath := fs.String("directory", "", "store directory JSON (default: the one built into this binary)")
 		fs.Parse(os.Args[2:])
 		serve(ctx, *addr, *data, *web, loadConfig(*cfgPath), loadDirectory(*dirPath))
+	case "osmindex":
+		if err := osmindex.RunCLI(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
 	case "directory":
 		fs := flag.NewFlagSet("directory", flag.ExitOnError)
 		out := fs.String("out", "directory.json", "output file")

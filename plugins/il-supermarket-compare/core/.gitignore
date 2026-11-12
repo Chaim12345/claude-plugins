@@ -1,2 +1,7 @@
 salzol-data/
 /salzol
+*.pbf
+*.osm.pbf
+osmindex*.bin
+osmindex*.bin.gz
+*.idx.gz
