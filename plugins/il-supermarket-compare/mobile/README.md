@@ -53,6 +53,12 @@ Follow products ("עקוב") and mark a cart as "הסל הרגיל שלי". Afte
 
 The background task is registered only while notifications are on and something is followed. The OS decides when it runs (Android WorkManager, iOS BGTaskScheduler); see the comment at the top of `background.ts` for the real limits. `index.ts` is the entry point so the task is defined in the global scope.
 
+## What the app does with the data
+
+- **Home**: a price index per branch (each branch's shelf prices against the area's median for every product sold at 3+ branches, geometric mean; prices a branch hasn't sold at for a month are left out), category tiles, "my regulars" (products added to a cart on two or more days), the best real deals, prices that moved since the last sync, and the products with the widest price range. `src/lib/insights.ts`, tested in `insights.test.ts`.
+- **Price changes**: the files say when a price changed, not which way; the app compares each new catalog with the previous one for branches whose file is newer and keeps 30 days of moves.
+- **Availability**: a branch that hasn't sold an item for a month doesn't count as "cheapest" while another branch sells it, is flagged on the product sheet, and is listed as "maybe not on the shelf" in the cart.
+
 ## Layout
 
 | Path | What it is |

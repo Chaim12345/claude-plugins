@@ -109,6 +109,20 @@ A promotion with a club ID other than 0 ("0 - כלל הלקוחות" is everyone
 
 The catalog gets a top-level `promos` (a list per store, same order as `stores`) of `{id, codes, minQty, kind, value, club, desc, max?, end?}`, with `codes` cut down to catalog products sold at that store, and `promoStats` per store (`parsed`, `modeled`, `applied`, `skipped` by reason). `end` is `YYYYMMDDhhmm` in local time. Consumers that ignore these fields still see shelf prices. A "N ב־X" deal applies per product, floor(q/N) times with the remainder at shelf price. Many chains write it as mix-and-match across several barcodes, which is counted conservatively.
 
+## Product metadata
+
+The price files carry more than a name and a price, but every chain fills the extra fields differently (or with junk: one chain stamps its own name as the manufacturer of a thousand items, Bina portals and Wolt re-date their whole list every night). `meta.go` keeps only what can be trusted and adds it as the 8th element of each product, `null` when there's nothing:
+
+| Field | From | Rule |
+|---|---|---|
+| `size: [amount, "g"\|"ml"\|"u", chains]` | `Quantity` + `UnitQty` | the amount most chains state, one vote per chain; the app prefers it to the name when 2+ chains agree |
+| `maker` | `ManufacturerName` | grouped by first word, kept when 2+ chains agree, shortest spelling |
+| `il` | `ManufactureCountry` | 2+ chains say Israel and they outnumber the others |
+| `stale: [[store, days]]` | `LastSaleDateTime` | the branch hasn't sold the item for 14+ days (only for chains that date sales) |
+| `chg: [[store, days]]` | `PriceUpdateTime` | the branch changed the price within 30 days (only for chains whose dates vary) |
+
+Stores get `hasSold` / `hasChg` saying which signals their file supports. Fresh items skip a match that hasn't sold for 30 days when a fresher one exists. On the Ramat Gan catalog: size for 96% of products (names alone: 71%), manufacturer for 35%, made in Israel for 40%, and 5-20% of each branch's listed products unsold there for a month. The catalog's `version` (now 2) makes an older stored catalog rebuild instead of being served as unchanged.
+
 ## Not done yet
 
 - Basket-level and gift promotions, mix-and-match across different products, weighted (per kg) promotions, weekday/hour windows, and club-specific membership tiers (see Promotions).

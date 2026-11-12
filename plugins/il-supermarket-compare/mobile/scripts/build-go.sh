@@ -9,6 +9,7 @@ core="$here/../core"
 mod="$here/modules/salzol-native"
 target="${1:-all}"
 
+export PATH="$PATH:$(go env GOPATH)/bin" # where go install puts gomobile
 command -v gomobile >/dev/null || { go install golang.org/x/mobile/cmd/gomobile@latest && gomobile init; }
 cd "$core"
 go get golang.org/x/mobile/bind >/dev/null 2>&1 || true
