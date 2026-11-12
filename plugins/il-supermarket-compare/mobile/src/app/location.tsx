@@ -6,6 +6,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Num, T, useTheme } from "../components/ui";
 import { engine } from "../lib/engine";
+import { withTimeout } from "../lib/geo";
 import { useData } from "../lib/store";
 import type { NearStore, Place } from "../lib/types";
 
@@ -55,7 +56,10 @@ export default function LocationSheet() {
     try {
       const perm = await Location.requestForegroundPermissionsAsync();
       if (!perm.granted) return setMsg({ text: "לא קיבלנו הרשאת מיקום. הקלידו כתובת במקום.", err: true });
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      // A fresh fix, but not forever: fall back to the phone's last known position (up to 10 minutes old).
+      const pos = (await withTimeout(Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }), 15000))
+        ?? (await Location.getLastKnownPositionAsync({ maxAge: 10 * 60 * 1000 }).catch(() => null));
+      if (!pos) return setMsg({ text: "לא הצלחנו לקבל מיקום מהטלפון. ודאו ששירותי המיקום פועלים, או הקלידו כתובת.", err: true });
       setVia("gps");
       setCand({ place: "המיקום שלי", lat: +pos.coords.latitude.toFixed(5), lon: +pos.coords.longitude.toFixed(5), radius });
     } catch {

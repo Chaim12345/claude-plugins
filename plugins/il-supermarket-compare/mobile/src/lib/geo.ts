@@ -27,3 +27,15 @@ export function chooseCandidate(cands: LatLon[], centre: LatLon | null, maxKm = 
   if (!centre) return cands[0];
   return cands.find(c => km(c.lat, c.lon, centre.lat, centre.lon) <= maxKm) ?? null;
 }
+
+/**
+ * Resolves with the promise's value, or null if it takes longer than ms (or fails). Used for GPS:
+ * a fresh fix can take forever indoors, and the phone's last known position is better than a
+ * spinner that never ends.
+ */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(null), ms);
+    p.then(v => { clearTimeout(timer); resolve(v); }, () => { clearTimeout(timer); resolve(null); });
+  });
+}

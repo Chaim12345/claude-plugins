@@ -25,3 +25,10 @@ test("chooseCandidate takes the first answer when the city is unknown", () => {
   assert.deepEqual(chooseCandidate([hadera, haifaHerzl], null), hadera);
   assert.equal(chooseCandidate([], null), null);
 });
+
+test("withTimeout returns the value when it's in time, null when it's late or fails", async () => {
+  const { withTimeout } = await import("./geo.ts");
+  assert.equal(await withTimeout(Promise.resolve(7), 50), 7);
+  assert.equal(await withTimeout(new Promise(res => setTimeout(() => res(7), 200)), 20), null);
+  assert.equal(await withTimeout(Promise.reject(new Error("no fix")), 50), null);
+});
