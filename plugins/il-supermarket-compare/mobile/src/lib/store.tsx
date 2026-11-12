@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { compare, toProducts, type Comparison } from "./compare";
 import { addedCount, discoverLine, isDiscovering, nextNote, shouldCheckDiscovery, type DiscoverResult } from "./discover";
 import { engine } from "./engine";
+import { cleanName, mergeCarts, newId, uniqueName, type SavedList } from "./saved";
 import type { Cart, Catalog, Place, Product, SyncEvent } from "./types";
 
 /** note: a short, one-time remark about store discovery ("לא הצלחנו להוסיף: ..."); it never blocks a sync. */
@@ -20,6 +21,12 @@ type Ctx = {
   comparison: Comparison | null;
   ready: boolean; // finished reading saved state
   setQty(code: string, qty: number): void;
+  addMany(items: Cart): void; // adds quantities to what is already in the cart
+  saved: SavedList[];
+  saveCart(name: string): void; // saves the current cart under a name
+  loadSaved(id: string, mode: "replace" | "merge"): void;
+  renameSaved(id: string, name: string): void;
+  deleteSaved(id: string): void;
   clearCart(): void;
   toggleStore(id: string): void;
   choosePlace(p: Place): void;
@@ -28,7 +35,7 @@ type Ctx = {
 
 const C = createContext<Ctx | null>(null);
 
-const KEY = { cart: "salzol:cart", place: "salzol:place", off: "salzol:off" };
+const KEY = { cart: "salzol:cart", place: "salzol:place", off: "salzol:off", saved: "salzol:saved" };
 
 async function load<T>(k: string, d: T): Promise<T> {
   try {
@@ -45,6 +52,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<Cart>({});
   const [place, setPlace] = useState<Place | null>(null);
   const [off, setOff] = useState<string[]>([]);
+  const [saved, setSaved] = useState<SavedList[]>([]);
   const [sync, setSync] = useState<SyncState>({ running: false, events: [], error: null });
   const [ready, setReady] = useState(false);
   const busy = useRef(false);
@@ -101,8 +109,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // Start-up: saved state first, then the last catalog, then a refresh (fast when nothing is new).
   useEffect(() => {
     (async () => {
-      const [c, p, o] = await Promise.all([load<Cart>(KEY.cart, {}), load<Place | null>(KEY.place, null), load<string[]>(KEY.off, [])]);
-      setCart(c); setPlace(p); setOff(o);
+      const [c, p, o, sv] = await Promise.all([load<Cart>(KEY.cart, {}), load<Place | null>(KEY.place, null), load<string[]>(KEY.off, []), load<SavedList[]>(KEY.saved, [])]);
+      setCart(c); setPlace(p); setOff(o); setSaved(Array.isArray(sv) ? sv : []);
       const cached = await engine.cached(p).catch(() => null);
       if (cached) setCatalog(cached);
       setReady(true);
@@ -115,7 +123,41 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const comparison = useMemo(() => (catalog && Object.keys(cart).length ? compare(products, cart, active) : null), [catalog, products, cart, active]);
 
   const value: Ctx = {
-    catalog, products, active, cart, place, sync, comparison, ready,
+    catalog, products, active, cart, place, sync, comparison, ready, saved,
+    addMany(items) {
+      setCart(prev => {
+        const next = mergeCarts(prev, items);
+        save(KEY.cart, next);
+        return next;
+      });
+    },
+    saveCart(name) {
+      setSaved(prev => {
+        const next = [{ id: newId(), name: uniqueName(cleanName(name, "הסל שלי"), prev), items: { ...cart }, at: Date.now() }, ...prev];
+        save(KEY.saved, next);
+        return next;
+      });
+    },
+    loadSaved(id, mode) {
+      const l = saved.find(x => x.id === id);
+      if (!l) return;
+      const next = mode === "merge" ? mergeCarts(cart, l.items) : { ...l.items };
+      setCart(next); save(KEY.cart, next);
+    },
+    renameSaved(id, name) {
+      setSaved(prev => {
+        const next = prev.map(l => (l.id === id ? { ...l, name: uniqueName(cleanName(name, l.name), prev, id) } : l));
+        save(KEY.saved, next);
+        return next;
+      });
+    },
+    deleteSaved(id) {
+      setSaved(prev => {
+        const next = prev.filter(l => l.id !== id);
+        save(KEY.saved, next);
+        return next;
+      });
+    },
     setQty(code, qty) {
       setCart(prev => {
         const next = { ...prev };

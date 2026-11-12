@@ -29,6 +29,13 @@
       "expo-router",
       "expo-image",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "המצלמה משמשת רק לסריקת ברקוד של מוצר, כדי להוסיף אותו לסל.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "המיקום משמש רק כדי למצוא סופרמרקטים קרובים אליך."

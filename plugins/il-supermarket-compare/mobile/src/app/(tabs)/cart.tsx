@@ -1,14 +1,14 @@
 import { useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { MoreChains } from "../../components/MoreChains";
-import { Button, Num, ProductImage, Stepper, T, useTheme } from "../../components/ui";
+import { Button, Num, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
 import { fmtDate, money, priceInfo, storeKm } from "../../lib/compare";
 import { useData } from "../../lib/store";
 
 export default function CartScreen() {
   const t = useTheme();
   const router = useRouter();
-  const { catalog, comparison: c, active, setQty, clearCart, place } = useData();
+  const { catalog, comparison: c, active, setQty, clearCart, place, saved } = useData();
 
   if (!catalog || !c || !c.items.length) {
     return (
@@ -16,6 +16,9 @@ export default function CartScreen() {
         <T style={{ fontSize: 18, fontWeight: "700", textAlign: "center" }}>הסל ריק</T>
         <T style={{ color: t.ink2, textAlign: "center" }}>הוסיפו מוצרים, ונראה לכם באיזה סניף הסל כולו הכי זול.</T>
         <Button title="למוצרים" onPress={() => router.navigate("/")} />
+        <Button kind="ghost" title="הדבקת רשימת קניות" onPress={() => router.push("/list")} />
+        {canScan() ? <Button kind="ghost" title="סריקת ברקוד" onPress={() => router.push("/scan")} /> : null}
+        {saved.length ? <Button kind="ghost" title={`רשימות שמורות (${saved.length})`} onPress={() => router.push("/saved")} /> : null}
       </View>
     );
   }
@@ -23,6 +26,11 @@ export default function CartScreen() {
   const save = best && !best.missing.length ? best.total - c.split : 0;
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Button kind="ghost" title="שמירה / רשימות" style={{ flex: 1, height: 40 }} onPress={() => router.push("/saved")} />
+        <Button kind="ghost" title="הדבקת רשימה" style={{ flex: 1, height: 40 }} onPress={() => router.push("/list")} />
+        {canScan() ? <Button kind="ghost" title="סריקה" style={{ flex: 1, height: 40 }} onPress={() => router.push("/scan")} /> : null}
+      </View>
       <Section title="איפה לקנות" action={<Pressable onPress={clearCart}><Text style={{ color: t.brand, fontWeight: "700" }}>ריקון הסל</Text></Pressable>}>
         {c.rows.map((r, k) => {
           const s = catalog.stores[r.i];

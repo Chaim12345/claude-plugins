@@ -1,6 +1,7 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { useEffect, useState, type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View, useColorScheme, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from "react-native";
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { Platform, Pressable, StyleSheet, Text, View, useColorScheme, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from "react-native";
 import { money } from "../lib/compare";
 import { engine } from "../lib/engine";
 import type { Product } from "../lib/types";
@@ -96,6 +97,23 @@ export function ProductImage({ p, size }: { p: Product; size: number | "fill" })
       {p.weighted ? <View style={{ position: "absolute", top: 6, left: 6, backgroundColor: t.surface, borderRadius: 6, paddingHorizontal: 6 }}><Text style={{ fontSize: 11, fontWeight: "700", color: t.ink }}>לק״ג</Text></View> : null}
     </View>
   );
+}
+
+/** Round icon button next to a search box. */
+export function IconBtn({ icon, label, onPress }: { icon: ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void }) {
+  const t = useTheme();
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress}
+      style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, backgroundColor: t.brandSoft, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.8 : 1 })}>
+      <Ionicons name={icon} size={22} color={t.brand} />
+    </Pressable>
+  );
+}
+
+/** Native phones always have a camera API; browsers only where getUserMedia exists. */
+export function canScan(): boolean {
+  if (Platform.OS !== "web") return true;
+  return typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 }
 
 const s = StyleSheet.create({

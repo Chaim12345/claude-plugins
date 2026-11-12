@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { memo, useDeferredValue, useMemo, useState } from "react";
 import { FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
-import { Button, Num, PriceTag, ProductImage, Stepper, T, useTheme } from "../../components/ui";
+import { Button, IconBtn, Num, PriceTag, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
 import { search, storeKm, type PriceInfo, type Sort } from "../../lib/compare";
 import { useData } from "../../lib/store";
 import type { Catalog, Product } from "../../lib/types";
@@ -51,11 +51,15 @@ export default function Shop() {
       columnWrapperStyle={{ gap: 10 }}
       ListHeaderComponent={
         <View style={{ gap: 10, marginBottom: 2 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: t.surface2, borderRadius: 22, paddingHorizontal: 14, height: 44, gap: 8 }}>
-            <Ionicons name="search" size={18} color={t.ink2} />
-            <TextInput value={q} onChangeText={setQ} placeholder="חיפוש: חלב, עגבניות, במבה…" placeholderTextColor={t.ink2}
-              style={[{ flex: 1, color: t.ink, textAlign: "right", fontSize: 15, height: 44 }, Platform.OS === "web" && ({ outlineStyle: "none" } as object)]} returnKeyType="search" accessibilityLabel="חיפוש מוצר" />
-            {q ? <Pressable onPress={() => setQ("")} accessibilityLabel="ניקוי"><Ionicons name="close-circle" size={18} color={t.ink2} /></Pressable> : null}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: t.surface2, borderRadius: 22, paddingHorizontal: 14, height: 44, gap: 8, minWidth: 0 }}>
+              <Ionicons name="search" size={18} color={t.ink2} />
+              <TextInput value={q} onChangeText={setQ} placeholder="חיפוש: חלב, עגבניות, במבה…" placeholderTextColor={t.ink2}
+                style={[{ flex: 1, color: t.ink, textAlign: "right", fontSize: 15, height: 44 }, Platform.OS === "web" && ({ outlineStyle: "none" } as object)]} returnKeyType="search" accessibilityLabel="חיפוש מוצר" />
+              {q ? <Pressable onPress={() => setQ("")} accessibilityLabel="ניקוי"><Ionicons name="close-circle" size={18} color={t.ink2} /></Pressable> : null}
+            </View>
+            <IconBtn icon="list" label="הדבקת רשימת קניות" onPress={() => router.push("/list")} />
+            {canScan() ? <IconBtn icon="barcode-outline" label="סריקת ברקוד" onPress={() => router.push("/scan")} /> : null}
           </View>
           <Chips items={[{ id: "all", name: "הכל" }, ...catalog.categories]} value={cat} onChange={setCat} />
           <StoreChips catalog={catalog} active={active} onToggle={toggleStore} />
