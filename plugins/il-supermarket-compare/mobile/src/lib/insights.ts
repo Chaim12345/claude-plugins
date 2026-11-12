@@ -1,7 +1,7 @@
 // What the catalog says beyond single prices: which branch is cheapest overall, where comparing pays
 // most, what changed since the last sync, and what the user buys again and again.
 // Pure logic (no React, no storage): runs under `node --test`.
-import { isStale, priceInfo } from "./compare.ts";
+import { dealText, isStale, priceAt, priceInfo, type Deals } from "./compare.ts";
 import type { Catalog, Product } from "./types.ts";
 
 // ---- Price index ---------------------------------------------------------------------------
@@ -227,4 +227,82 @@ export function regulars(freq: Freq, products: Map<string, Product>, active: num
     .sort((a, b) => b.n - a.n || b.at - a.at);
   const repeat = rows.filter(r => r.n >= 2);
   return (repeat.length >= 3 ? repeat : rows).slice(0, limit).map(r => r.p);
+}
+
+// ---- In-store checklist --------------------------------------------------------------------
+
+export type ShopLine = { p: Product; q: number; cost: number; shelf: number; deal: string | null; stale: boolean };
+export type ShopPlan = {
+  store: number;
+  groups: { cat: string; lines: ShopLine[] }[]; // in category order, so the list follows the shop's departments
+  missing: { p: Product; q: number; at: number | null; cost: number | null }[]; // not sold at this branch: where it's cheapest instead
+  total: number;
+};
+
+/**
+ * The cart as a shopping list for one branch: what each item costs there (best usable promotion
+ * included), grouped by department; and what that branch doesn't sell, with the cheapest active
+ * branch that does.
+ */
+export function shopPlan(products: Map<string, Product>, cart: Record<string, number>, store: number, active: number[], catOrder: string[], deals?: Deals): ShopPlan {
+  const byCat = new Map<string, ShopLine[]>();
+  const missing: ShopPlan["missing"] = [];
+  let total = 0;
+  for (const [code, q] of Object.entries(cart)) {
+    const p = products.get(code);
+    if (!p) continue;
+    const r = priceAt(p, store, q, deals);
+    if (!r) {
+      let at: number | null = null, cost: number | null = null;
+      for (const i of active) {
+        const o = priceAt(p, i, q, deals);
+        if (o && (cost == null || o.cost < cost)) { cost = o.cost; at = i; }
+      }
+      missing.push({ p, q, at, cost });
+      continue;
+    }
+    total += r.cost;
+    const line: ShopLine = { p, q, cost: Math.round(r.cost), shelf: Math.round(r.shelf), deal: r.promo ? dealText(r.promo) : null, stale: isStale(p, store) };
+    const l = byCat.get(p.cat);
+    if (l) l.push(line); else byCat.set(p.cat, [line]);
+  }
+  const rank = (c: string) => { const k = catOrder.indexOf(c); return k < 0 ? 999 : k; };
+  const groups = [...byCat].sort((a, b) => rank(a[0]) - rank(b[0])).map(([cat, lines]) => ({ cat, lines: lines.sort((a, b) => a.p.name.localeCompare(b.p.name, "he")) }));
+  return { store, groups, missing, total: Math.round(total) };
+}
+
+// ---- Freshness of the price files ----------------------------------------------------------
+
+/** Hours between a branch's price file and the newest file in the catalog; null when either has no time. */
+export function fileLagHours(c: Catalog, i: number): number | null {
+  const ms = (s?: string) => (s && /^\d{12}/.test(s) ? Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12)) : null);
+  const mine = ms(c.stores[i]?.fileTime);
+  let newest: number | null = null;
+  for (const s of c.stores) { const v = ms(s.fileTime); if (v != null && (newest == null || v > newest)) newest = v; }
+  if (mine == null || newest == null) return null;
+  return Math.round((newest - mine) / 3_600_000);
+}
+
+/** Branches whose price file is more than `hours` behind the newest one: their prices may be out of date. */
+export function staleFiles(c: Catalog, active: number[], hours = 36): { i: number; lag: number }[] {
+  const out: { i: number; lag: number }[] = [];
+  for (const i of active) { const lag = fileLagHours(c, i); if (lag != null && lag > hours) out.push({ i, lag }); }
+  return out.sort((a, b) => b.lag - a.lag);
+}
+
+// ---- Deals on my products ------------------------------------------------------------------
+
+/**
+ * Deals on products the user cares about (cart, regulars, followed), best real saving first, one per
+ * product. `items` is the deals feed (already filtered for club use).
+ */
+export function dealsOnMine<T extends { code: string; verdict: string; realPct: number; savePct: number }>(items: T[], mine: Set<string>, limit = 12): T[] {
+  const best = new Map<string, T>();
+  const score = (d: T) => (d.verdict === "real" ? 1000 + d.realPct : d.savePct);
+  for (const d of items) {
+    if (!mine.has(d.code)) continue;
+    const b = best.get(d.code);
+    if (!b || score(d) > score(b)) best.set(d.code, d);
+  }
+  return [...best.values()].sort((a, b) => score(b) - score(a)).slice(0, limit);
 }

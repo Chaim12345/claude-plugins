@@ -213,7 +213,7 @@ const Card = memo(function Card({ p, pi, deal, dealChain, chain, qty, setQty, op
 function Filter({ on, label, icon, onPress }: { on: boolean; label: string; icon: React.ComponentProps<typeof Ionicons>["name"]; onPress: () => void }) {
   const t = useTheme();
   return (
-    <Pressable onPress={onPress} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={label}
+    <Pressable onPress={onPress} accessibilityRole="checkbox" accessibilityState={{ checked: on }} aria-checked={on} accessibilityLabel={label}
       style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, minHeight: 36, borderRadius: 999, borderWidth: 1, borderColor: on ? t.brand : t.line, backgroundColor: on ? t.brandSoft : t.surface }}>
       <Ionicons name={on ? "checkmark" : icon} size={15} color={on ? t.brand : t.ink2} />
       <Text style={{ color: t.ink, fontWeight: "600", fontSize: 13 }}>{label}</Text>
@@ -243,7 +243,7 @@ function StoreChips({ catalog, active, onToggle }: { catalog: Catalog; active: n
         const on = active.includes(i);
         const d = storeKm(catalog, i);
         return (
-          <Pressable key={s.id} onPress={() => onToggle(s.id)} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={`${s.chain} ${s.branch}`}
+          <Pressable key={s.id} onPress={() => onToggle(s.id)} accessibilityRole="checkbox" accessibilityState={{ checked: on }} aria-checked={on} accessibilityLabel={`${s.chain} ${s.branch}`}
             style={{ flexDirection: "row", gap: 4, alignItems: "baseline", paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, borderWidth: 1,
               borderColor: on ? t.ink : t.line, backgroundColor: on ? t.ink : t.surface, opacity: on ? 1 : 0.6 }}>
             <Text style={{ color: on ? t.bg : t.ink, fontWeight: "700", fontSize: 13, textDecorationLine: on ? "none" : "line-through" }}>{s.chain}</Text>

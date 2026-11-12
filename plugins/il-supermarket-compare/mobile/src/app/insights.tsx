@@ -4,7 +4,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { Card, ModalHead, Pct, PctBar, SectionHead, useModalPadding } from "../components/blocks";
 import { Num, ProductImage, T, useTheme } from "../components/ui";
 import { money, storeKm } from "../lib/compare";
-import { priceIndex, topGaps } from "../lib/insights";
+import { fileLagHours, priceIndex, topGaps } from "../lib/insights";
 import { useData } from "../lib/store";
 
 /** The price index in full: every branch, overall or for one category, and the products with the widest gaps. */
@@ -58,6 +58,7 @@ export default function Insights() {
                 <PctBar pct={r.pct} max={span} />
                 <T numberOfLines={1} style={{ color: t.ink2, fontSize: 12.5 }}>{s.branch}{d != null ? ` · ${d.toFixed(1)} ק״מ` : ""}</T>
                 <T numberOfLines={1} style={{ color: t.ink2, fontSize: 12 }}>הזול ביותר ב־{r.cheapest.toLocaleString("he-IL")} מתוך {r.n.toLocaleString("he-IL")} מוצרים</T>
+                {(fileLagHours(catalog, r.i) ?? 0) > 36 ? <T style={{ color: t.warn, fontSize: 12, fontWeight: "600" }}>מחירון מלפני {Math.round(fileLagHours(catalog, r.i)! / 24)} ימים</T> : null}
               </View>
             </Pressable>
           );

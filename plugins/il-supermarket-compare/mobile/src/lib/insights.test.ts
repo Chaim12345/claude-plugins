@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compare, isStale, soldDaysAgo, changedDaysAgo, search, toProducts } from "./compare.ts";
-import { bumpFreq, categoryWinners, diffCatalogs, mergeChanges, priceIndex, recentlyChanged, regulars, summarizeChanges, topGaps, trimFreq, type Change } from "./insights.ts";
+import { compare, isStale, makeDeals, soldDaysAgo, changedDaysAgo, search, toProducts } from "./compare.ts";
+import { bumpFreq, categoryWinners, dealsOnMine, fileLagHours, shopPlan, staleFiles, diffCatalogs, mergeChanges, priceIndex, recentlyChanged, regulars, summarizeChanges, topGaps, trimFreq, type Change } from "./insights.ts";
 import type { Catalog, RawProduct } from "./types.ts";
 import { sizeOf } from "./units.ts";
 
@@ -161,4 +161,38 @@ test("regulars: counted once a day, shown when bought on two days, never what's 
   assert.deepEqual(regulars(f, ps, [0, 1, 2], { "2": 1 }).map(p => p.code), ["1", "3", "4"]);
   assert.deepEqual(regulars(f, ps, [0, 1, 2], {}).map(p => p.code).sort(), ["1", "2", "3"]);    // three repeats: the one-off "4" is left out
   assert.equal(Object.keys(trimFreq(f, 2)).length, 2);
+});
+
+test("shop plan: per-branch prices with deals, grouped by department, and where missing items are cheapest", () => {
+  const c = catalog([
+    ["1", "חלב", "dairy", 0, [700, 650, 720], null, null],
+    ["2", "במבה", "snacks", 0, [450, null, 390], null, null],                   // not at branch 1
+    ["3", "קוטג", "dairy", 0, [600, 550, 500], null, null, { stale: [[1, 40]] }],
+    ["4", "עגבניות", "produce", 1, [690, 590, 590], null, null],
+  ]);
+  c.promos = [[], [{ id: "x", codes: ["1"], minQty: 2, kind: "bundle", value: 1000, club: false, desc: "2 ב־10" }], []];
+  const ps = toProducts(c);
+  const plan = shopPlan(ps, { "1": 2, "2": 1, "3": 1, "4": 1.5 }, 1, [0, 1, 2], ["produce", "dairy", "snacks"], makeDeals(c));
+  assert.deepEqual(plan.groups.map(g => g.cat), ["produce", "dairy"]);
+  const milk = plan.groups[1].lines.find(l => l.p.code === "1")!;
+  assert.deepEqual([milk.cost, milk.shelf, milk.deal], [1000, 1300, "2 ב־10.00 ₪"]);
+  assert.equal(plan.groups[1].lines.find(l => l.p.code === "3")!.stale, true);
+  assert.deepEqual(plan.missing.map(m => [m.p.code, m.at, m.cost]), [["2", 2, 390]]);
+  assert.equal(plan.total, 1000 + 550 + 885);
+});
+
+test("file freshness: lag behind the newest file, and which branches are too old", () => {
+  const c = catalog([]);
+  c.stores[0].fileTime = "202611121200"; c.stores[1].fileTime = "202611100300"; c.stores[2].fileTime = undefined;
+  assert.equal(fileLagHours(c, 0), 0);
+  assert.equal(fileLagHours(c, 1), 57);
+  assert.equal(fileLagHours(c, 2), null);
+  assert.deepEqual(staleFiles(c, [0, 1, 2]), [{ i: 1, lag: 57 }]);
+  assert.deepEqual(staleFiles(c, [0, 2]), []);
+});
+
+test("deals on my products: one per product, real savings first, others ignored", () => {
+  const d = (code: string, verdict: string, realPct: number, savePct: number) => ({ code, verdict, realPct, savePct });
+  const items = [d("1", "alone", 0, 40), d("1", "real", 10, 30), d("2", "notCheapest", -5, 25), d("3", "real", 20, 20), d("9", "real", 50, 50)];
+  assert.deepEqual(dealsOnMine(items, new Set(["1", "2", "3"])).map(x => [x.code, x.verdict]), [["3", "real"], ["1", "real"], ["2", "notCheapest"]]);
 });

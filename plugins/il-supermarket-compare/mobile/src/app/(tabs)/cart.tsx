@@ -40,7 +40,7 @@ export default function CartScreen() {
   const chains = clubChains(catalog);
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
-      <Hero catalog={catalog} c={c} />
+      <Hero catalog={catalog} c={c} onShop={i => router.push({ pathname: "/shop", params: { store: catalog.stores[i].id } })} />
       <View style={{ flexDirection: "row", gap: 8 }}>
         <Action icon="bookmark-outline" label="שמורות" onPress={() => router.push("/saved")} />
         <Action icon="clipboard-outline" label="הדבקה" onPress={() => router.push("/list")} />
@@ -187,7 +187,7 @@ function Action({ icon, label, onPress }: { icon: React.ComponentProps<typeof Io
 }
 
 /** The answer in one glance: where the whole basket is cheapest, and how much that saves. */
-function Hero({ catalog, c }: { catalog: Catalog; c: Comparison }) {
+function Hero({ catalog, c, onShop }: { catalog: Catalog; c: Comparison; onShop: (store: number) => void }) {
   const t = useTheme();
   const best = c.rows[0];
   if (!best) return null;
@@ -203,20 +203,23 @@ function Hero({ catalog, c }: { catalog: Catalog; c: Comparison }) {
       </Text>
       <Text style={{ color: t.brandInk, fontSize: 22, fontWeight: "800", textAlign: "right", writingDirection: "rtl" }}>{s.chain}</Text>
       <Text numberOfLines={1} style={{ color: t.brandInk, opacity: 0.85, fontSize: 13, textAlign: "right", writingDirection: "rtl" }}>{s.branch}{d != null ? ` · ${d.toFixed(1)} ק״מ` : ""}</Text>
-      <View style={{ flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 10, marginTop: 4 }}>
-        <Text style={{ color: t.brandInk, fontSize: 34, fontWeight: "800", fontVariant: ["tabular-nums"] }}>{money(best.total)}<Text style={{ fontSize: 18 }}> ₪</Text></Text>
-        {saving > 0 ? (
-          <View style={{ backgroundColor: t.brandInk, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}>
-            <Text style={{ color: t.brand, fontWeight: "800", fontSize: 13 }}>חוסך {money(saving)} ₪ מול הסניף היקר</Text>
-          </View>
-        ) : null}
-      </View>
+      <Text numberOfLines={1} style={{ color: t.brandInk, fontSize: 34, fontWeight: "800", fontVariant: ["tabular-nums"], textAlign: "right", marginTop: 2 }}>{money(best.total)}<Text style={{ fontSize: 18 }}> ₪</Text></Text>
+      {saving > 0 ? (
+        <View style={{ alignSelf: "flex-start", backgroundColor: t.brandInk, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 }}>
+          <Text style={{ color: t.brand, fontWeight: "800", fontSize: 13 }}>חוסך {money(saving)} ₪ מול הסניף היקר</Text>
+        </View>
+      ) : null}
       {best.missing.length ? <Text style={{ color: t.brandInk, fontSize: 12.5, textAlign: "right", writingDirection: "rtl" }}>חסרים בסניף: {best.missing.length} מוצרים</Text> : null}
       {best.doubt.length ? (
         <Text style={{ color: t.brandInk, fontSize: 12.5, textAlign: "right", writingDirection: "rtl", opacity: 0.92 }}>
           שימו לב: {best.doubt.length === 1 ? "מוצר אחד בסל לא נמכר" : `${best.doubt.length} מוצרים בסל לא נמכרו`} בסניף הזה חודש ויותר, וייתכן שאינם על המדף.
         </Text>
       ) : null}
+      <Pressable onPress={() => onShop(best.i)} accessibilityRole="button" accessibilityLabel={`יוצאים לקנות ב${s.chain}: רשימת קניות לפי מחלקות`}
+        style={({ pressed }) => ({ marginTop: 6, height: 44, borderRadius: 12, backgroundColor: t.brandInk, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, opacity: pressed ? 0.9 : 1 })}>
+        <Ionicons name="checkbox-outline" size={20} color={t.brand} />
+        <Text style={{ color: t.brand, fontWeight: "800", fontSize: 15 }}>יוצאים לקנות: רשימה לסניף</Text>
+      </Pressable>
     </View>
   );
 }

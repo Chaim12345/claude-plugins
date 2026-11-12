@@ -8,8 +8,9 @@ import { Button, CAT_ICON, CAT_TINT, IconBtn, Num, ProductImage, T, canScan, use
 import { fmtDate, money, priceInfo, storeKm } from "../../lib/compare";
 import { bestOfWeek, cartQty, defaultFilters, filterDeals, type DealItem } from "../../lib/dealsFeed";
 import { dealFeed } from "../../lib/feed";
-import { priceIndex, recentlyChanged, regulars, summarizeChanges, topGaps } from "../../lib/insights";
+import { dealsOnMine, priceIndex, recentlyChanged, regulars, staleFiles, summarizeChanges, topGaps } from "../../lib/insights";
 import { useData } from "../../lib/store";
+import { useWatch } from "../../lib/watchctx";
 
 // One-line labels for the category tiles (the full names are on the products screen).
 const SHORT: Record<string, string> = { produce: "פירות וירקות", meat: "בשר ודגים", dairy: "חלב וביצים", bakery: "לחם ומאפים", drinks: "משקאות", snacks: "חטיפים",
@@ -24,14 +25,20 @@ export default function Home() {
   const t = useTheme();
   const router = useRouter();
   const { catalog, products, active, cart, club, place, ready, sync, freq, changes, setQty, addMany } = useData();
+  const { state: watch } = useWatch();
 
   const index = useMemo(() => (catalog ? priceIndex(products.values(), active) : []), [catalog, products, active]);
   const feed = useMemo(() => (catalog?.promos ? dealFeed(catalog, products, active, club) : null), [catalog, products, active, club]);
-  const best = useMemo(() => {
+  const usable = useMemo(() => {
     if (!feed) return [];
     const hasClub = Object.values(club).some(Boolean);
-    return bestOfWeek(filterDeals(feed.items, { ...defaultFilters, club: hasClub ? "club" : "none", onlyReal: false }).items, 8);
+    return filterDeals(feed.items, { ...defaultFilters, club: hasClub ? "club" : "none", onlyReal: false }).items;
   }, [feed, club]);
+  const best = useMemo(() => bestOfWeek(usable, 8), [usable]);
+  // deals on what this person buys: the cart, products bought on earlier days, followed products
+  const mineSet = useMemo(() => new Set([...Object.keys(cart), ...Object.keys(freq), ...watch.followed]), [cart, freq, watch.followed]);
+  const myDeals = useMemo(() => dealsOnMine(usable, mineSet, 10), [usable, mineSet]);
+  const oldFiles = useMemo(() => (catalog ? staleFiles(catalog, active) : []), [catalog, active]);
   const mine = useMemo(() => regulars(freq, products, active, cart, 12), [freq, products, active, cart]);
   const moved = useMemo(() => (catalog ? summarizeChanges(changes, products, catalog, active) : null), [changes, products, catalog, active]);
   const dated = useMemo(() => (catalog ? recentlyChanged(products.values(), active, 7).total : 0), [catalog, products, active]);
@@ -118,6 +125,29 @@ export default function Home() {
             ))}
           </View>
         </View>
+
+        {oldFiles.length ? (
+          <Pressable onPress={() => router.push("/insights")} accessibilityRole="button"
+            style={{ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: t.warn + "1a", borderRadius: 14, padding: 12 }}>
+            <Ionicons name="time-outline" size={22} color={t.warn} />
+            <T style={{ flex: 1, fontSize: 13, lineHeight: 19 }}>
+              {oldFiles.length === 1 ? `ל${catalog.stores[oldFiles[0].i].chain} (${catalog.stores[oldFiles[0].i].branch}) יש מחירון ישן` : `ל־${oldFiles.length} סניפים יש מחירון ישן`}
+              {` (${Math.round(oldFiles[0].lag / 24)} ימים מאחורי האחרים). המחירים שם אולי כבר השתנו.`}
+            </T>
+          </Pressable>
+        ) : null}
+
+        {myDeals.length ? (
+          <View style={{ gap: 10 }}>
+            <SectionHead title="במבצע ממה שאתם קונים" sub="מהסל, מהרגילים ומהמוצרים שאתם עוקבים אחריהם" />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+              {myDeals.map(d => (
+                <DealCard key={d.id} d={d} catalogStores={catalog.stores} now={feed!.now} qty={cart[d.code] ?? 0} width={176}
+                  add={(x: DealItem) => addMany({ [x.code]: cartQty(x) })} setQty={setQty} open={open} />
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
 
         {mine.length ? (
           <View style={{ gap: 10 }}>

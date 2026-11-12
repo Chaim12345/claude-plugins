@@ -32,6 +32,7 @@ export default function RootLayout() {
             <Stack.Screen name="notifications" options={{ presentation: "modal" }} />
             <Stack.Screen name="insights" options={{ presentation: "modal" }} />
             <Stack.Screen name="changes" options={{ presentation: "modal" }} />
+            <Stack.Screen name="shop" options={{ presentation: "modal" }} />
           </Stack>
           <Onboarding />
         </View>
