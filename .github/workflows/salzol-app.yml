@@ -17,7 +17,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: salzol-${{ github.ref }}
+  # One run per branch: a push and its pull_request event share the group.
+  group: salzol-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:

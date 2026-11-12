@@ -11,6 +11,9 @@ adb wait-for-device
 adb install -r "$apk"
 adb shell pm grant il.salzol.app android.permission.ACCESS_FINE_LOCATION || true
 adb shell pm grant il.salzol.app android.permission.ACCESS_COARSE_LOCATION || true
+# The emulator image ships with location services off; a phone user would have them on.
+adb shell cmd location set-location-enabled true || true
+adb shell settings put secure location_mode 3 || true
 # Bialik St, Ramat Gan (longitude latitude). Keep sending fixes, as a real GPS does: Android's fused
 # provider waits for a fresh one.
 ( while true; do adb emu geo fix 34.8140 32.0842 >/dev/null 2>&1; sleep 2; done ) &
