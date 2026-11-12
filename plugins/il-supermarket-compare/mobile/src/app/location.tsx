@@ -57,7 +57,10 @@ export default function LocationSheet() {
       const perm = await Location.requestForegroundPermissionsAsync();
       if (!perm.granted) return setMsg({ text: "לא קיבלנו הרשאת מיקום. הקלידו כתובת במקום.", err: true });
       // A fresh fix, but not forever: fall back to the phone's last known position (up to 10 minutes old).
-      const pos = (await withTimeout(Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }), 15000))
+      // Wi-Fi/cell location first (fast, works indoors); if the phone can't give one, GPS proper
+      // (slower, needs sky); then the last known position.
+      const pos = (await withTimeout(Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }), 8000))
+        ?? (await withTimeout(Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }), 15000))
         ?? (await Location.getLastKnownPositionAsync({ maxAge: 10 * 60 * 1000 }).catch(() => null));
       if (!pos) return setMsg({ text: "לא הצלחנו לקבל מיקום מהטלפון. ודאו ששירותי המיקום פועלים, או הקלידו כתובת.", err: true });
       setVia("gps");
