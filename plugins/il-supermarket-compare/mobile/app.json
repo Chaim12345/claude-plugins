@@ -18,7 +18,13 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "il.salzol.app"
+      "package": "il.salzol.app",
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.VIBRATE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -40,7 +46,8 @@
         {
           "locationWhenInUsePermission": "המיקום משמש רק כדי למצוא סופרמרקטים קרובים אליך."
         }
-      ]
+      ],
+      "@maplibre/maplibre-react-native"
     ],
     "scheme": "salzol",
     "experiments": {

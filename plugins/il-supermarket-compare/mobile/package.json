@@ -5,9 +5,11 @@
   "dependencies": {
     "@expo/metro-runtime": "~58.0.17",
     "@expo/vector-icons": "^15.0.2",
+    "@maplibre/maplibre-react-native": "^11.5.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~58.0.24",
     "expo-camera": "~58.0.14",
+    "expo-clipboard": "~58.0.4",
     "expo-constants": "~58.0.16",
     "expo-image": "~58.0.18",
     "expo-linking": "~58.0.17",

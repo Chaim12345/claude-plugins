@@ -90,7 +90,7 @@ export function parseLine(rawLine: string): ParsedLine {
       if (u && GRAM.has(u)) { grams = amount; used[i] = used[j] = true; continue; }
       if (u && ML.has(u)) { ml = amount; used[i] = used[j] = true; continue; }
       if (u && LITER.has(u)) { ml = amount * 1000; for (let k = i; k <= j; k++) used[k] = true; continue; }
-      if (u && UNIT.has(u)) { count = amount; used[i] = used[j] = true; continue; }
+      if (u && UNIT.has(u)) { if (count == null) count = amount; used[i] = used[j] = true; continue; } // an explicit ×N wins over a pack size in the name
     }
     // a unit with an implied one: "קילו עגבניות", "חצי קילו", "רבע קילו", "קילו וחצי"
     if (KG.has(t)) {
@@ -108,7 +108,7 @@ export function parseLine(rawLine: string): ParsedLine {
     }
     if (UNIT.has(t) && i > 0 && num(i - 1) != null && !used[i - 1] && count == null) { count = num(i - 1); used[i - 1] = used[i] = true; continue; }
     // "חצי חלב", "רבע גבינה": a fraction in front of the item (after the unit cases above)
-    if ((HALF.has(t) || QUARTER.has(t)) && i === 0 && n > 1 && !KG.has(toks[1]) && !LITER.has(toks[1])) {
+    if ((HALF.has(t) || QUARTER.has(t)) && i === 0 && count == null && n > 1 && !KG.has(toks[1]) && !LITER.has(toks[1])) {
       count = HALF.has(t) ? 0.5 : 0.25; used[i] = true; continue;
     }
     // a bare number (or number word) at either end of the line is a count; "3%" is not

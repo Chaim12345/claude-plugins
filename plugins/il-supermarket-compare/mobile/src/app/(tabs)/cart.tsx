@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { MoreChains } from "../../components/MoreChains";
+import { CartShareBar } from "../../components/ShareButtons";
 import { Button, DealBadge, Num, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
 import { clubChains, dealText, fmtDate, money, priceInfo, storeKm, type Comparison } from "../../lib/compare";
 import type { Catalog } from "../../lib/types";
@@ -65,6 +66,7 @@ export default function CartScreen() {
         })}
       </Section>
 
+      <CartShareBar />
       <Section title="איפה לקנות">
         {(showAll ? c.rows : c.rows.slice(0, 3)).map((r, k) => {
           const s = catalog.stores[r.i];
@@ -72,7 +74,8 @@ export default function CartScreen() {
           const pct = c.common && r.fair > c.fairLow ? `+${((r.fair / c.fairLow - 1) * 100).toFixed(1)}% על אותם מוצרים` : c.common ? "הכי זול על אותם מוצרים" : "";
           const off = r.shelf - r.total;
           return (
-            <View key={s.id} style={{ borderWidth: 1, borderColor: k === 0 ? t.good : t.line, backgroundColor: k === 0 ? t.good + "18" : t.surface, borderRadius: 12, padding: 12, gap: 2 }}>
+            <Pressable key={s.id} accessibilityRole="button" accessibilityLabel={`${s.chain}, ${s.branch}: מפה וניווט`} onPress={() => router.push({ pathname: "/map", params: { store: s.id } })}
+              style={{ borderWidth: 1, borderColor: k === 0 ? t.good : t.line, backgroundColor: k === 0 ? t.good + "18" : t.surface, borderRadius: 12, padding: 12, gap: 2 }}>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 }}>
                   <T style={{ fontWeight: "700" }}>{s.chain}</T>
@@ -91,7 +94,7 @@ export default function CartScreen() {
                 </T>
               ) : null}
               {r.missing.length ? <T style={{ color: t.bad, fontSize: 12.5 }}>חסר: {r.missing.join("، ")}</T> : null}
-            </View>
+            </Pressable>
           );
         })}
         {c.rows.length > 3 ? (

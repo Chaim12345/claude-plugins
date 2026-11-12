@@ -2,13 +2,16 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { Onboarding } from "../components/Onboarding";
 import { useTheme } from "../components/ui";
+import { SettingsProvider } from "../lib/settings";
 import { DataProvider } from "../lib/store";
 
 export default function RootLayout() {
   const t = useTheme();
   return (
     <SafeAreaProvider>
+      <SettingsProvider>
       <DataProvider>
         {/* direction: rtl lays the whole app out right-to-left on iOS, Android and web, with no restart. */}
         <View style={{ flex: 1, direction: "rtl", backgroundColor: t.bg }}>
@@ -20,9 +23,13 @@ export default function RootLayout() {
             <Stack.Screen name="list" options={{ presentation: "modal" }} />
             <Stack.Screen name="scan" options={{ presentation: "modal" }} />
             <Stack.Screen name="saved" options={{ presentation: "modal" }} />
+            <Stack.Screen name="map" options={{ presentation: "modal" }} />
+            <Stack.Screen name="settings" options={{ presentation: "modal" }} />
           </Stack>
+          <Onboarding />
         </View>
       </DataProvider>
+      </SettingsProvider>
     </SafeAreaProvider>
   );
 }

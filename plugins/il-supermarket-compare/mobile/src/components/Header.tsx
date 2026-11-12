@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import type { ComponentProps } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fmtDate, fmtStamp, newestStamp } from "../lib/compare";
+import { useSettings } from "../lib/settings";
 import { syncLine, useData } from "../lib/store";
 import { T, useTheme } from "./ui";
 
@@ -11,6 +13,7 @@ export function Header() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { place, sync, catalog, runSync } = useData();
+  const { t: tr } = useSettings();
   const n = catalog?.stores.length ?? 0;
   let status = "";
   if (sync.running) status = syncLine(sync, n);
@@ -21,7 +24,7 @@ export function Header() {
   }
   return (
     <View style={{ backgroundColor: t.surface, paddingTop: insets.top + 8, paddingHorizontal: 16, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: t.line, gap: 6 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: t.tag, alignItems: "center", justifyContent: "center" }}><Text style={{ fontWeight: "800", color: t.tagInk }}>₪</Text></View>
           <Text style={{ fontSize: 22, fontWeight: "800", color: t.brand }}>סל זול</Text>
@@ -30,8 +33,10 @@ export function Header() {
           style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 4, height: 36, borderRadius: 18, borderWidth: 1, borderColor: t.line, paddingHorizontal: 10, minWidth: 0 }}>
           <Ionicons name="location-outline" size={17} color={t.brand} />
           <T numberOfLines={1} style={{ flexShrink: 1, fontWeight: "600", fontSize: 14 }}>{place ? place.place : "בחירת מיקום"}</T>
-          {place ? <T style={{ color: t.ink2, fontSize: 13 }}>· {place.radius} ק״מ</T> : null}
+          {place ? <T numberOfLines={1} style={{ color: t.ink2, fontSize: 13, flexShrink: 0 }}>· {place.radius} ק״מ</T> : null}
         </Pressable>
+        {place ? <HeaderIcon icon="map-outline" label={tr("map.open")} onPress={() => router.push("/map")} /> : null}
+        <HeaderIcon icon="settings-outline" label={tr("settings.title")} onPress={() => router.push("/settings")} />
         <Pressable accessibilityRole="button" accessibilityLabel="עדכון מחירים" onPress={runSync} disabled={sync.running}
           style={{ height: 36, width: 36, borderRadius: 18, borderWidth: 1, borderColor: t.brand, backgroundColor: t.brandSoft, alignItems: "center", justifyContent: "center" }}>
           {sync.running ? <ActivityIndicator size="small" color={t.brand} /> : <Ionicons name="refresh" size={18} color={t.brand} />}
@@ -40,5 +45,16 @@ export function Header() {
       {status ? <T numberOfLines={1} style={{ fontSize: 12.5, color: sync.error ? t.bad : t.ink2 }}>{status}</T> : null}
       {sync.note && !sync.running ? <T numberOfLines={1} style={{ fontSize: 12, color: t.ink2 }}>{sync.note}</T> : null}
     </View>
+  );
+}
+
+/** Small round header button (map, settings). */
+function HeaderIcon({ icon, label, onPress }: { icon: ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void }) {
+  const t = useTheme();
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress}
+      style={{ height: 36, width: 34, borderRadius: 18, borderWidth: 1, borderColor: t.line, alignItems: "center", justifyContent: "center" }}>
+      <Ionicons name={icon} size={18} color={t.ink2} />
+    </Pressable>
   );
 }

@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -7,6 +8,8 @@ import { Button, Num, PriceTag, ProductImage, Stepper, T, useTheme } from "../co
 import { priceInfo } from "../lib/compare";
 import { matchList, quantityFor, type Match } from "../lib/listmatch";
 import { parseList } from "../lib/listparse";
+import { itemLines } from "../lib/shareText";
+import { useSettings } from "../lib/settings";
 import { useData } from "../lib/store";
 
 type Row = { m: Match; pick: number; qty: number; on: boolean; open: boolean };
@@ -19,13 +22,16 @@ export default function PasteList() {
   const insets = useSafeAreaInsets();
   const { text: shared } = useLocalSearchParams<{ text?: string }>();
   const { catalog, products, active, addMany } = useData();
+  const { t: tr } = useSettings();
   const [text, setText] = useState(typeof shared === "string" ? shared : "");
   const [rows, setRows] = useState<Row[] | null>(null);
 
-  const count = useMemo(() => text.split("\n").filter(l => l.trim()).length, [text]);
+  // A list shared from this app (header, items, cheapest branch, app line) counts and parses as just its items.
+  const items = useMemo(() => itemLines(text), [text]);
+  const count = useMemo(() => items.split("\n").filter(l => l.trim()).length, [items]);
 
   function analyse() {
-    const ms = matchList(products, parseList(text), active);
+    const ms = matchList(products, parseList(items), active);
     setRows(ms.map(m => {
       const p = m.cands[0] ? products.get(m.cands[0].code) : undefined;
       return { m, pick: 0, qty: p ? quantityFor(m.line, p) : 0, on: !!p && m.conf !== "low", open: false };
@@ -62,7 +68,12 @@ export default function PasteList() {
           <Button title={count ? `התאמת מוצרים (${count})` : "התאמת מוצרים"} style={{ flex: 1 }} disabled={!count} onPress={analyse} />
           <Button kind="ghost" title="ביטול" style={{ flex: 1 }} onPress={() => router.back()} />
         </View>
-        {text ? <Pressable onPress={() => setText("")}><Text style={{ color: t.brand, fontWeight: "700", textAlign: "right" }}>ניקוי</Text></Pressable> : null}
+        <View style={{ flexDirection: "row", gap: 16 }}>
+          <Pressable onPress={async () => { const c = await Clipboard.getStringAsync().catch(() => ""); if (c) setText(c); }} accessibilityRole="button">
+            <Text style={{ color: t.brand, fontWeight: "700", textAlign: "right" }}>{tr("list.paste")}</Text>
+          </Pressable>
+          {text ? <Pressable onPress={() => setText("")}><Text style={{ color: t.brand, fontWeight: "700", textAlign: "right" }}>ניקוי</Text></Pressable> : null}
+        </View>
       </ScrollView>
     );
   }

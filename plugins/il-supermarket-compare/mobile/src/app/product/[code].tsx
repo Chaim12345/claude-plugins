@@ -3,6 +3,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Button, DealBadge, Num, PinnedBar, ProductImage, Stepper, T, useTheme } from "../../components/ui";
+import { ProductShareButton } from "../../components/ShareButtons";
 import { dealText, dealUnit, money, shownPromos, storeKm } from "../../lib/compare";
 import { useData } from "../../lib/store";
 
@@ -81,6 +82,7 @@ export default function ProductSheet() {
           );
         })}
       </View>
+      <ProductShareButton p={p} />
     </ScrollView>
     {/* Pinned, so adding is one tap however long the list of branches is. */}
     <PinnedBar>

@@ -4,6 +4,11 @@ appId: il.salzol.app
 ---
 - launchApp:
     clearState: true
+# First run shows the introduction: skip it.
+- extendedWaitUntil:
+    visible: "דילוג"
+    timeout: 60000
+- tapOn: "דילוג"
 - extendedWaitUntil:
     visible: "בחירת מיקום"
     timeout: 60000
