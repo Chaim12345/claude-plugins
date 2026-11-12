@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -64,6 +65,9 @@ type Promo struct {
 	// Start and End are YYYYMMDDhhmm in the chain's local time; empty = open-ended. Start is dropped from the catalog.
 	Start string `json:"-"`
 	End   string `json:"end,omitempty"`
+	// second marks "the second one for X" promotions, whose published price is the second item's alone;
+	// BuildPromos turns Value into the real price of the pair using each branch's shelf price.
+	second bool
 }
 
 // PromoFile is a parsed PromoFull file.
@@ -256,6 +260,7 @@ type terms struct {
 	minQty int
 	value  float64 // ₪ or percent, as published
 	max    int
+	second bool
 }
 
 // normalizePromotion turns one Promotion element into modelled promos, or says why it can't.
@@ -366,6 +371,9 @@ func normalizePromotion(n *node) ([]Promo, string) {
 			t = terms{kind: KindPrice, minQty: 1, value: dp}
 		case dp > 0:
 			t = terms{kind: KindBundle, minQty: int(minQ), value: dp}
+			if minQ == 2 && secondItemRx.MatchString(desc) {
+				t.second = true
+			}
 		case dr > 0 && dr < 100 && minQ == 1:
 			t = terms{kind: KindPercent, minQty: 1, value: dr}
 		case dr >= 100 || minQ > 1:
@@ -378,7 +386,7 @@ func normalizePromotion(n *node) ([]Promo, string) {
 		t.max = int(num("maxqty"))
 		p := byTerms[t]
 		if p == nil {
-			p = &Promo{ID: id, MinQty: t.minQty, Kind: t.kind, Value: t.value, Club: club, Desc: CleanPromoDesc(desc), Max: t.max, Start: start, End: end}
+			p = &Promo{ID: id, MinQty: t.minQty, Kind: t.kind, Value: t.value, Club: club, Desc: CleanPromoDesc(desc), Max: t.max, Start: start, End: end, second: t.second}
 			if t.kind != KindPercent {
 				p.Value = math.Round(t.value * 100) // agorot
 			}
@@ -396,6 +404,10 @@ func normalizePromotion(n *node) ([]Promo, string) {
 	}
 	return out, ""
 }
+
+// secondItemRx matches "השני בחצי מחיר", "השני ב-5", "המוצר השני ב…": the published price is the
+// second item's, not the price of the pair.
+var secondItemRx = regexp.MustCompile(`(?:^|[\s,/-])ה?שני(?:ה|יה)?\s*(?:ב|ל|בחצי)`)
 
 // CleanPromoDesc collapses whitespace in a promotion description.
 func CleanPromoDesc(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -456,12 +468,26 @@ func BuildPromos(stores []StoreData, products [][]any) ([][]Promo, []PromoStats)
 				continue
 			}
 			var codes []string
+			var pairs map[float64][]string // second-item promos: price of the pair -> codes
 			for _, c := range pr.Codes {
 				prices, ok := shelf[c]
 				if !ok || prices[i] == nil {
 					continue
 				}
 				p := float64(prices[i].(int))
+				if pr.second {
+					if pr.Value >= p { // the "discounted" second item costs as much as a full-price one
+						if dropped[pr.ID] == "" {
+							dropped[pr.ID] = SkipImplausible
+						}
+						continue
+					}
+					if pairs == nil {
+						pairs = map[float64][]string{}
+					}
+					pairs[p+pr.Value] = append(pairs[p+pr.Value], c) // full price for the first, the published price for the second
+					continue
+				}
 				eff := pr.priceAfter(p, pr.MinQty) / float64(pr.MinQty)
 				if eff >= p || eff < 0.25*p {
 					if dropped[pr.ID] == "" {
@@ -470,6 +496,26 @@ func BuildPromos(stores []StoreData, products [][]any) ([][]Promo, []PromoStats)
 					continue
 				}
 				codes = append(codes, c)
+			}
+			if pr.second {
+				totals := make([]float64, 0, len(pairs))
+				for t := range pairs {
+					totals = append(totals, t)
+				}
+				sort.Float64s(totals)
+				for _, t := range totals {
+					q := pr
+					q.second = false
+					q.Value = t
+					q.Codes = pairs[t]
+					sort.Strings(q.Codes)
+					out[i] = append(out[i], q)
+					kept[pr.ID] = true
+				}
+				if len(totals) == 0 && dropped[pr.ID] == "" {
+					dropped[pr.ID] = SkipNotInCatalog
+				}
+				continue
 			}
 			if len(codes) == 0 {
 				if dropped[pr.ID] == "" {

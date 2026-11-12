@@ -253,3 +253,33 @@ func TestFetchPromoMissingIsNotFatal(t *testing.T) {
 		t.Errorf("after prune: %v", ents)
 	}
 }
+
+func TestSecondItemPromo(t *testing.T) {
+	for desc, want := range map[string]bool{
+		"טופיפי 125גר השני בחצי מחיר": true,
+		"גולון טווינס השני בחצי":      true,
+		"יוגורט המוצר השני ב-5":       true,
+		"שניצל תירס זוגלובק 2ב50":     false,
+		"שניצלונים מצופים 2 ב 40":     false,
+	} {
+		if got := secondItemRx.MatchString(desc); got != want {
+			t.Errorf("%q: got %v want %v", desc, got, want)
+		}
+	}
+	// Published "640" is the second item's price; the pair costs shelf + 640 per branch.
+	products := [][]any{
+		{"1", "tofifi", "snacks", 0, []any{1280, 1400}, nil, "x"},
+		{"2", "dear", "snacks", 0, []any{600, 600}, nil, "x"},
+	}
+	pf := &PromoFile{Total: 1, Promos: []Promo{{ID: "s", Codes: []string{"1", "2"}, MinQty: 2, Kind: KindBundle, Value: 640, second: true}}}
+	out, _ := BuildPromos([]StoreData{{Store: Store{ID: "a:1"}, Promos: pf}, {Store: Store{ID: "a:2"}, Promos: pf}}, products)
+	if len(out[0]) != 1 || out[0][0].Value != 1920 || out[0][0].Codes[0] != "1" {
+		t.Fatalf("store 0: %+v", out[0]) // 1280+640; code 2's "second" costs more than shelf, dropped
+	}
+	if len(out[1]) != 1 || out[1][0].Value != 2040 {
+		t.Fatalf("store 1: %+v", out[1])
+	}
+	if got := out[0][0].priceAfter(1280, 2); got != 1920 {
+		t.Errorf("pair price %v", got)
+	}
+}
