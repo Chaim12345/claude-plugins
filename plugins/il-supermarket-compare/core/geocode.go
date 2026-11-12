@@ -10,82 +10,198 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-// Geocoder looks addresses up on OpenStreetMap Nominatim. It respects Nominatim's usage policy:
-// at most one request per second, an identifying User-Agent, and a permanent cache (misses included),
-// so each address is only ever asked once.
+// Geocoder looks Israeli addresses up on public OpenStreetMap geocoders. It spreads lookups over
+// several services (Nominatim, Photon), each held to its own usage policy: at most one request per
+// second per service, an identifying User-Agent, and a permanent cache (misses included), so each
+// address is only ever asked once. If one service fails, another answers.
 type Geocoder struct {
 	CacheFile string
 	Client    *http.Client
+	Providers []*GeoProvider
 
-	mu    sync.Mutex
+	mu    sync.Mutex // guards cache and dirty
 	cache map[string]*[2]float64
-	last  time.Time
 	dirty int
 }
 
+// GeoProvider is one geocoding service.
+type GeoProvider struct {
+	Name   string
+	MinGap time.Duration // the service's rate limit
+	Search func(ctx context.Context, c *http.Client, q string) ([]nominatimHit, error)
+
+	mu   sync.Mutex
+	next time.Time // earliest time the next request may start
+}
+
+// reserve books this provider's next request slot and returns how long to wait for it.
+func (p *GeoProvider) reserve() time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := time.Now()
+	if p.next.Before(now) {
+		p.next = now
+	}
+	wait := p.next.Sub(now)
+	p.next = p.next.Add(p.MinGap)
+	return wait
+}
+
+func (p *GeoProvider) freeAt() time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.next
+}
+
+// DefaultGeoProviders are used unless SALZOL_GEOCODERS names a subset ("nominatim,photon").
+func DefaultGeoProviders() []*GeoProvider {
+	all := map[string]*GeoProvider{
+		"nominatim": {Name: "nominatim", MinGap: 1100 * time.Millisecond, Search: nominatimSearch},
+		"photon":    {Name: "photon", MinGap: 1100 * time.Millisecond, Search: photonSearch},
+	}
+	names := []string{"nominatim", "photon"}
+	if env := strings.TrimSpace(os.Getenv("SALZOL_GEOCODERS")); env != "" {
+		names = strings.Split(env, ",")
+	}
+	var out []*GeoProvider
+	for _, n := range names {
+		if p, ok := all[strings.TrimSpace(n)]; ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func NewGeocoder(cacheFile string) *Geocoder {
-	g := &Geocoder{CacheFile: cacheFile, Client: &http.Client{Timeout: 30 * time.Second}, cache: map[string]*[2]float64{}}
+	g := &Geocoder{CacheFile: cacheFile, Client: &http.Client{Timeout: 30 * time.Second}, cache: map[string]*[2]float64{}, Providers: DefaultGeoProviders()}
 	if b, err := os.ReadFile(cacheFile); err == nil {
 		json.Unmarshal(b, &g.cache)
 	}
 	return g
 }
 
-// Lookup returns [lat, lon] for an Israeli address, or nil if Nominatim doesn't know it.
+// Lookup returns [lat, lon] for an Israeli address. found=false means the services don't know it
+// (cached); an error means none of them could be reached (not cached, so it's retried later).
+// Safe for concurrent use: concurrent lookups go to different services.
 func (g *Geocoder) Lookup(ctx context.Context, q string) ([2]float64, bool, error) {
 	q = strings.Join(strings.Fields(q), " ")
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	if v, ok := g.cache[q]; ok {
+		g.mu.Unlock()
 		if v == nil {
 			return [2]float64{}, false, nil
 		}
 		return *v, true, nil
 	}
-	if wait := 1100*time.Millisecond - time.Since(g.last); wait > 0 {
-		select {
-		case <-time.After(wait):
-		case <-ctx.Done():
-			return [2]float64{}, false, ctx.Err()
+	g.mu.Unlock()
+
+	// Try the service that frees up first; fall back to the others on failure.
+	order := append([]*GeoProvider(nil), g.Providers...)
+	sort.SliceStable(order, func(i, j int) bool { return order[i].freeAt().Before(order[j].freeAt()) })
+	var lastErr error = fmt.Errorf("no geocoding service configured")
+	for _, p := range order {
+		if wait := p.reserve(); wait > 0 {
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				return [2]float64{}, false, ctx.Err()
+			}
 		}
+		hits, err := p.Search(ctx, g.Client, q)
+		if err != nil {
+			lastErr = fmt.Errorf("%s: %w", p.Name, err)
+			continue
+		}
+		var v *[2]float64
+		if hit := pickHit(hits, q); hit != nil {
+			lat, _ := strconv.ParseFloat(hit.Lat, 64)
+			lon, _ := strconv.ParseFloat(hit.Lon, 64)
+			v = &[2]float64{lat, lon}
+		}
+		g.mu.Lock()
+		g.cache[q] = v
+		if g.dirty++; g.dirty >= 20 {
+			g.saveLocked()
+		}
+		g.mu.Unlock()
+		if v == nil {
+			return [2]float64{}, false, nil
+		}
+		return *v, true, nil
 	}
+	return [2]float64{}, false, lastErr
+}
+
+func nominatimSearch(ctx context.Context, c *http.Client, q string) ([]nominatimHit, error) {
 	u := "https://nominatim.openstreetmap.org/search?" + url.Values{"q": {q}, "format": {"json"}, "limit": {"5"}, "countrycodes": {"il"}, "addressdetails": {"1"}}.Encode()
 	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept-Language", "he")
-	resp, err := g.Client.Do(req)
-	g.last = time.Now()
+	resp, err := c.Do(req)
 	if err != nil {
-		return [2]float64{}, false, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return [2]float64{}, false, fmt.Errorf("nominatim: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	var r []nominatimHit
+	return r, json.NewDecoder(resp.Body).Decode(&r)
+}
+
+// photonSearch queries komoot's public Photon instance (OpenStreetMap data), limited to Israel's
+// bounding box, and maps its GeoJSON to the same shape as Nominatim's results.
+func photonSearch(ctx context.Context, c *http.Client, q string) ([]nominatimHit, error) {
+	u := "https://photon.komoot.io/api?" + url.Values{"q": {q}, "limit": {"5"}, "bbox": {"34.2,29.4,35.9,33.4"}}.Encode()
+	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var r struct {
+		Features []struct {
+			Geometry struct {
+				Coordinates []float64 `json:"coordinates"`
+			} `json:"geometry"`
+			Properties map[string]any `json:"properties"`
+		} `json:"features"`
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return [2]float64{}, false, err
+		return nil, err
 	}
-	var v *[2]float64
-	if hit := pickHit(r, q); hit != nil {
-		lat, _ := strconv.ParseFloat(hit.Lat, 64)
-		lon, _ := strconv.ParseFloat(hit.Lon, 64)
-		v = &[2]float64{lat, lon}
+	var out []nominatimHit
+	for _, f := range r.Features {
+		if len(f.Geometry.Coordinates) < 2 {
+			continue
+		}
+		if cc, _ := f.Properties["countrycode"].(string); cc != "" && cc != "IL" && cc != "PS" {
+			continue
+		}
+		addr := map[string]string{}
+		for _, k := range []string{"city", "town", "village", "county", "district", "state", "street", "housenumber"} {
+			if v, ok := f.Properties[k].(string); ok {
+				addr[k] = v
+			}
+		}
+		out = append(out, nominatimHit{
+			Lat:     strconv.FormatFloat(f.Geometry.Coordinates[1], 'f', -1, 64),
+			Lon:     strconv.FormatFloat(f.Geometry.Coordinates[0], 'f', -1, 64),
+			Address: addr,
+		})
 	}
-	g.cache[q] = v
-	if g.dirty++; g.dirty >= 20 {
-		g.saveLocked()
-	}
-	if v == nil {
-		return [2]float64{}, false, nil
-	}
-	return *v, true, nil
+	return out, nil
 }
 
 type nominatimHit struct {

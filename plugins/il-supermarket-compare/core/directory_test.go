@@ -1,6 +1,11 @@
 package core
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"net/http"
+	"testing"
+)
 
 func TestBanner(t *testing.T) {
 	cases := []struct {
@@ -30,6 +35,9 @@ func TestCityFor(t *testing.T) {
 	}
 	if got := cityFor(StoreRow{City: "0", Name: "קולינריק רמת גן"}, codes, names); got != "רמת גן" {
 		t.Errorf("from name: %q", got)
+	}
+	if got := cityFor(StoreRow{City: "8600", Name: "גבעתיים"}, codes, names); got != "גבעתיים" {
+		t.Errorf("a branch named after a city: %q", got)
 	}
 	if got := cityFor(StoreRow{City: "חיפה"}, codes, names); got != "חיפה" {
 		t.Errorf("name: %q", got)
@@ -116,5 +124,32 @@ func TestPickHitPrefersTypedCity(t *testing.T) {
 	}
 	if h := pickHit([]nominatimHit{{Lat: "1", Address: map[string]string{"city": "תל אביב-יפו"}}}, "דיזנגוף 50, תל אביב"); h == nil {
 		t.Errorf("תל אביב should match תל אביב-יפו")
+	}
+}
+
+func TestGeocoderFallsBackAndCaches(t *testing.T) {
+	calls := map[string]int{}
+	fail := &GeoProvider{Name: "down", MinGap: 0, Search: func(context.Context, *http.Client, string) ([]nominatimHit, error) {
+		calls["down"]++
+		return nil, errors.New("connection reset")
+	}}
+	ok := &GeoProvider{Name: "up", MinGap: 0, Search: func(context.Context, *http.Client, string) ([]nominatimHit, error) {
+		calls["up"]++
+		return []nominatimHit{{Lat: "32.81", Lon: "34.99", Address: map[string]string{"city": "חיפה"}}}, nil
+	}}
+	g := &Geocoder{cache: map[string]*[2]float64{}, Providers: []*GeoProvider{fail, ok}}
+	ll, found, err := g.Lookup(context.Background(), "הרצל 10, חיפה")
+	if err != nil || !found || ll[0] != 32.81 {
+		t.Fatalf("got %v %v %v", ll, found, err)
+	}
+	if _, _, err := g.Lookup(context.Background(), "הרצל 10, חיפה"); err != nil || calls["up"] != 1 {
+		t.Errorf("second lookup should come from the cache: calls=%v err=%v", calls, err)
+	}
+	all := &Geocoder{cache: map[string]*[2]float64{}, Providers: []*GeoProvider{fail}}
+	if _, _, err := all.Lookup(context.Background(), "x, y"); err == nil {
+		t.Errorf("every service down should be an error, not a cached miss")
+	}
+	if _, cached := all.cache["x, y"]; cached {
+		t.Errorf("a failure must not be cached")
 	}
 }

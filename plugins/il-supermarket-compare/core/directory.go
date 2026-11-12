@@ -139,6 +139,15 @@ func cityFor(r StoreRow, codes map[string]string, names []string) string {
 	if _, err := strconv.Atoi(c); err == nil {
 		c = codes[strings.TrimLeft(c, "0")]
 	}
+	// A branch named exactly after a city is in that city, whatever the city field says
+	// (Rami Levy's "אור עקיבא" branch lists Haifa as its city).
+	if n := normCity(r.Name); n != "" && n != normCity(c) {
+		for _, name := range names {
+			if normCity(name) == n {
+				return name
+			}
+		}
+	}
 	if c != "" {
 		return c
 	}
@@ -198,28 +207,61 @@ func BuildDirectory(ctx context.Context, chains []string, geo *Geocoder, client 
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Chain+rows[i].StoreID < rows[j].Chain+rows[j].StoreID })
 
 	d := &Directory{Built: time.Now().UTC().Format(time.RFC3339)}
+	// Locate branches concurrently, one worker per geocoding service, so each service runs at its
+	// own rate limit. Results keep the input order.
+	out := make([]*DirStore, len(rows))
+	workers := len(geo.Providers)
+	if workers < 1 {
+		workers = 1
+	}
+	jobs := make(chan int)
+	var done int64
+	var dmu sync.Mutex
+	var gwg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		gwg.Add(1)
+		go func() {
+			defer gwg.Done()
+			for i := range jobs {
+				r := rows[i]
+				city := cityFor(r, codes, names)
+				s := DirStore{Chain: r.Chain, StoreID: r.StoreID, Banner: banner(r.Chain, r), Name: r.Name, Address: r.Address, City: city}
+				if ll, exact, ok := geo.LocateStore(ctx, r.Address, city); ok {
+					s.Lat, s.Lon, s.Approx = ll[0], ll[1], !exact
+				}
+				out[i] = &s
+				dmu.Lock()
+				done++
+				if done%25 == 0 {
+					emit(Event{Phase: "geocode", Items: int(done), Message: fmt.Sprintf("%d/%d", done, len(rows))})
+				}
+				dmu.Unlock()
+			}
+		}()
+	}
 	for i, r := range rows {
-		if notSupermarketRx.MatchString(r.Name + " " + r.Address) {
+		if notSupermarketRx.MatchString(r.Name+" "+r.Address) || banner(r.Chain, r) == "BE" {
 			continue
 		}
-		city := cityFor(r, codes, names)
-		s := DirStore{Chain: r.Chain, StoreID: r.StoreID, Banner: banner(r.Chain, r), Name: r.Name, Address: r.Address, City: city}
-		if ll, exact, ok := geo.LocateStore(ctx, r.Address, city); ok {
-			s.Lat, s.Lon, s.Approx = ll[0], ll[1], !exact
+		select {
+		case jobs <- i:
+		case <-ctx.Done():
 		}
 		if ctx.Err() != nil {
-			geo.Save()
-			return nil, ctx.Err()
-		}
-		if s.Banner == "BE" {
-			continue
-		}
-		d.Stores = append(d.Stores, s)
-		if i%25 == 0 {
-			emit(Event{Phase: "geocode", Items: i, Message: fmt.Sprintf("%d/%d", i, len(rows))})
+			break
 		}
 	}
+	close(jobs)
+	gwg.Wait()
 	geo.Save()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	for _, s := range out {
+		if s != nil {
+			d.Stores = append(d.Stores, *s)
+		}
+	}
 	return d, nil
 }
 
