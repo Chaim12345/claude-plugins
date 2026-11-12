@@ -151,7 +151,8 @@ export default function Home() {
 
         {mine.length ? (
           <View style={{ gap: 10 }}>
-            <SectionHead title="הרגילים שלי" sub="מוצרים שהוספתם לסל בעבר. הקשה על + מוסיפה אחד." />
+            <SectionHead title="הרגילים שלי" sub="מוצרים שהוספתם לסל בעבר. הקשה על + מוסיפה אחד."
+              action={`הוספת כל ה־${mine.length} לסל`} onAction={() => addMany(Object.fromEntries(mine.map(p => [p.code, 1])))} />
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
               {mine.map(p => {
                 const pi = priceInfo(p, active);
