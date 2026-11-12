@@ -18,6 +18,10 @@ adb shell settings put secure location_mode 3 || true
 # provider waits for a fresh one.
 ( while true; do adb emu geo fix 34.8140 32.0842 >/dev/null 2>&1; sleep 2; done ) &
 geopid=$!
+# A slow CI emulator sometimes shows "Pixel Launcher isn't responding" over the app. Hide system
+# error dialogs, and let the user-visible app be the only thing on screen.
+adb shell settings put global hide_error_dialogs 1 || true
+adb shell settings put global anr_show_background 0 || true
 adb logcat -c
 adb logcat -v time > "$out/logcat.txt" &
 logpid=$!

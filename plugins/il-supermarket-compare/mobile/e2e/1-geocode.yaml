@@ -4,6 +4,10 @@ appId: il.salzol.app
 ---
 - launchApp:
     clearState: true
+# A system "isn't responding" dialog from a slow emulator can cover the app: dismiss it.
+- tapOn:
+    text: "Wait"
+    optional: true
 # First run shows the introduction: skip it.
 - extendedWaitUntil:
     visible: "דילוג"
