@@ -47,3 +47,4 @@ yarn-error.*
 # Built by scripts/build-go.sh
 modules/salzol-native/android/libs/*.aar
 modules/salzol-native/ios/Frameworks/*.xcframework
+modules/salzol-native/android/build/
