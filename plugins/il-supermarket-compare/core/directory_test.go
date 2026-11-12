@@ -153,3 +153,21 @@ func TestGeocoderFallsBackAndCaches(t *testing.T) {
 		t.Errorf("a failure must not be cached")
 	}
 }
+
+func TestCityCentre(t *testing.T) {
+	d := &Directory{Stores: []DirStore{
+		{City: "רמת גן", Lat: 32.08, Lon: 34.81},
+		{City: "רמת-גן", Lat: 32.06, Lon: 34.83},
+		{City: "רמת גן", Lat: 32.0, Lon: 34.0, Approx: true}, // ignored while street-level ones exist
+		{City: "גבעתיים", Lat: 32.07, Lon: 34.80, Approx: true},
+	}}
+	if lat, lon, ok := d.CityCentre("רמת גן"); !ok || lat < 32.069 || lat > 32.071 || lon < 34.819 || lon > 34.821 {
+		t.Errorf("רמת גן centre = %v,%v,%v", lat, lon, ok)
+	}
+	if lat, _, ok := d.CityCentre("גבעתיים"); !ok || lat != 32.07 {
+		t.Errorf("fallback to city-centre placeholders: %v %v", lat, ok)
+	}
+	if _, _, ok := d.CityCentre("אילת"); ok {
+		t.Errorf("unknown city should not be found")
+	}
+}

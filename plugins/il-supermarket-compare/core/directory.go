@@ -333,3 +333,32 @@ func branchLabel(s DirStore) string {
 	}
 	return n
 }
+
+// CityCentre estimates a city's centre from the directory's branches there: the mean of its
+// street-level branches, else of its city-centre placeholders. It needs no network, so the phone
+// can use it to sanity-check what its own geocoder returns.
+func (d *Directory) CityCentre(city string) (lat, lon float64, ok bool) {
+	want := normCity(city)
+	if want == "" {
+		return 0, 0, false
+	}
+	var sx, sy, ax, ay float64
+	var n, an int
+	for _, s := range d.Stores {
+		if s.Lat == 0 || normCity(s.City) != want {
+			continue
+		}
+		if s.Approx {
+			ax, ay, an = ax+s.Lat, ay+s.Lon, an+1
+		} else {
+			sx, sy, n = sx+s.Lat, sy+s.Lon, n+1
+		}
+	}
+	switch {
+	case n > 0:
+		return sx / float64(n), sy / float64(n), true
+	case an > 0:
+		return ax / float64(an), ay / float64(an), true
+	}
+	return 0, 0, false
+}

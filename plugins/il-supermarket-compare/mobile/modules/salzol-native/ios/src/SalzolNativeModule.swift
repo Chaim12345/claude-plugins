@@ -45,6 +45,14 @@ public class SalzolNativeModule: Module {
       return MobileResolveImage(self.dataDir, code)
     }
 
+    AsyncFunction("geocode") { (query: String) -> String in
+      return MobileGeocode(self.dataDir, query)
+    }
+
+    AsyncFunction("cityCentre") { (city: String) -> String in
+      return MobileCityCentre(city)
+    }
+
     Function("cancelSync") {
       MobileCancelSync()
     }

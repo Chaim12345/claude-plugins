@@ -21,6 +21,7 @@ export default function LocationSheet() {
   const [radius, setRadius] = useState(place?.radius ?? 4);
   const [msg, setMsg] = useState<{ text: string; err?: boolean } | null>(null);
   const [near, setNear] = useState<NearStore[] | null>(null);
+  const [via, setVia] = useState<"device" | "osm" | "gps" | null>(null);
 
   useEffect(() => {
     if (!cand) return;
@@ -29,10 +30,11 @@ export default function LocationSheet() {
     engine.nearby(cand.lat, cand.lon, radius).then(st => {
       if (!live) return;
       setNear(st);
-      setMsg(st.length ? { text: `${st.length} סניפים להשוואה סביב ${cand.place}:` } : { text: "אין סניפים מוכרים בטווח הזה. נסו מרחק גדול יותר.", err: true });
+      const how = via === "device" ? " (אותר בשירות המיקום של הטלפון)" : via === "osm" ? " (אותר לפי OpenStreetMap)" : "";
+      setMsg(st.length ? { text: `${st.length} סניפים להשוואה סביב ${cand.place}${how}:` } : { text: "אין סניפים מוכרים בטווח הזה. נסו מרחק גדול יותר.", err: true });
     }).catch(() => live && setMsg({ text: "לא הצלחנו לטעון את רשימת הסניפים. נסו שוב.", err: true }));
     return () => { live = false; };
-  }, [cand, radius]);
+  }, [cand, radius, via]);
 
   async function find() {
     const a = q.trim();
@@ -40,7 +42,8 @@ export default function LocationSheet() {
     setMsg({ text: "מאתר את הכתובת…" }); setNear(null);
     try {
       const g = await engine.geocode(a);
-      if (!g) return setMsg({ text: "לא מצאנו את הכתובת. נסו ״רחוב ומספר, עיר״.", err: true });
+      if (!g) return setMsg({ text: "לא מצאנו את הכתובת בעיר הזאת. נסו ״רחוב ומספר, עיר״.", err: true });
+      setVia(g.source);
       setCand({ place: a, lat: g.lat, lon: g.lon, radius, typed: true });
     } catch {
       setMsg({ text: "איתור הכתובת נכשל. בדקו את החיבור ונסו שוב.", err: true });
@@ -53,6 +56,7 @@ export default function LocationSheet() {
       const perm = await Location.requestForegroundPermissionsAsync();
       if (!perm.granted) return setMsg({ text: "לא קיבלנו הרשאת מיקום. הקלידו כתובת במקום.", err: true });
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setVia("gps");
       setCand({ place: "המיקום שלי", lat: +pos.coords.latitude.toFixed(5), lon: +pos.coords.longitude.toFixed(5), radius });
     } catch {
       setMsg({ text: "לא הצלחנו לקבל מיקום. הקלידו כתובת במקום.", err: true });

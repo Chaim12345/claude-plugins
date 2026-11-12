@@ -4,7 +4,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { Platform } from "react-native";
 import Native from "../../modules/salzol-native";
+import { chooseCandidate, typedCity, type LatLon } from "./geo";
 import type { Catalog, MoreResult, NearStore, Place, SyncEvent } from "./types";
+
+/** A geocoded address and who answered: the phone's own geocoder, or OpenStreetMap services. */
+export type Geocoded = LatLon & { source: "device" | "osm" };
 
 export interface Engine {
   kind: "device" | "server";
@@ -12,7 +16,7 @@ export interface Engine {
   cached(place: Place | null): Promise<Catalog | null>;
   sync(place: Place | null, onEvent: (e: SyncEvent) => void): Promise<Catalog>;
   nearby(lat: number, lon: number, radiusKm: number): Promise<NearStore[]>;
-  geocode(address: string): Promise<{ lat: number; lon: number } | null>;
+  geocode(address: string): Promise<Geocoded | null>;
   imageUrl(code: string): string | null;
   /** A second photo source when imageUrl fails (Open Food Facts via the Go core), or null. */
   fallbackImage(code: string): Promise<string | null>;
@@ -35,13 +39,27 @@ async function json<T>(r: Response): Promise<T> {
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-async function osGeocode(address: string) {
-  // The phone's built-in geocoder: free, no API key. Android asks for location permission first.
-  const perm = await Location.requestForegroundPermissionsAsync();
-  if (Platform.OS === "android" && !perm.granted) return null;
-  const r = await Location.geocodeAsync(address);
-  return r.length ? { lat: r[0].latitude, lon: r[0].longitude } : null;
+/**
+ * The phone's built-in geocoder (Android's Geocoder, iOS's CLGeocoder): free, no API key.
+ * Returns its candidates, or [] when it can't help: location permission refused (Android requires
+ * it for geocoding), or no geocoding backend on the device (phones without Google Play services
+ * throw "Geocoder service is not available").
+ */
+async function osCandidates(address: string): Promise<LatLon[]> {
+  try {
+    const perm = await Location.getForegroundPermissionsAsync();
+    if (Platform.OS === "android" && !perm.granted) {
+      const asked = await Location.requestForegroundPermissionsAsync();
+      if (!asked.granted) return [];
+    }
+    const r = await Location.geocodeAsync(address);
+    return r.map(x => ({ lat: x.latitude, lon: x.longitude }));
+  } catch {
+    return [];
+  }
 }
+
+const parse = (s: string) => JSON.parse(s) as { found: boolean; lat: number; lon: number };
 
 function deviceEngine(): Engine {
   const m = Native!;
@@ -61,7 +79,22 @@ function deviceEngine(): Engine {
       }
     },
     async nearby(lat, lon, r) { return JSON.parse(await m.nearbyStores(lat, lon, r, 14)) as NearStore[]; },
-    geocode: osGeocode,
+    // The phone's own geocoder first, checked against the typed city's centre (from the built-in
+    // store directory, offline); OpenStreetMap through the Go core when it's missing, refused or
+    // points at another town.
+    async geocode(address) {
+      const city = typedCity(address);
+      let centre: LatLon | null = null;
+      if (city) {
+        const c = parse(await m.cityCentre(city).catch(() => '{"found":false}'));
+        if (c.found) centre = { lat: c.lat, lon: c.lon };
+      }
+      const pick = chooseCandidate(await osCandidates(address), centre);
+      if (pick) return { ...pick, source: "device" };
+      const g = parse(await m.geocode(address).catch(() => '{"found":false}'));
+      if (g.found && chooseCandidate([g], centre)) return { lat: g.lat, lon: g.lon, source: "osm" };
+      return null;
+    },
     imageUrl: code => `https://img.rami-levy.co.il/product/${encodeURIComponent(code)}/small.jpg`,
     async fallbackImage(code) {
       const u = await m.resolveImage(code).catch(() => "");
@@ -104,12 +137,14 @@ function serverEngine(): Engine {
       return (await json<{ stores: NearStore[] }>(await fetch(`${base}/api/nearby?lat=${lat}&lon=${lon}&radius=${r}`))).stores;
     },
     async geocode(address) {
+      // Expo Go on a phone: its own geocoder first (no city centre to check against here; the
+      // server's answer has the city check).
       if (Platform.OS !== "web") {
-        const g = await osGeocode(address).catch(() => null);
-        if (g) return g;
+        const c = await osCandidates(address);
+        if (c.length && !typedCity(address)) return { ...c[0], source: "device" };
       }
       const g = await json<{ found: boolean; lat: number; lon: number }>(await fetch(`${base}/api/geocode?q=${encodeURIComponent(address)}`));
-      return g.found ? { lat: g.lat, lon: g.lon } : null;
+      return g.found ? { lat: g.lat, lon: g.lon, source: "osm" } : null;
     },
     imageUrl: code => `${base}/img/${encodeURIComponent(code)}`,
     fallbackImage: async () => null, // the server already tried every source

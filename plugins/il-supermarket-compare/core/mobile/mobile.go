@@ -127,3 +127,15 @@ var errNoStores = errorString("no known stores within this radius")
 type errorString string
 
 func (e errorString) Error() string { return string(e) }
+
+// CityCentre returns {"found":bool,"lat":..,"lon":..}: the centre of a city estimated from the
+// built-in store directory, with no network. The app uses it to check its own geocoder's answers.
+func CityCentre(city string) string {
+	d, err := core.DefaultDirectory()
+	if err != nil {
+		return `{"found":false}`
+	}
+	lat, lon, ok := d.CityCentre(city)
+	b, _ := json.Marshal(map[string]any{"found": ok, "lat": lat, "lon": lon})
+	return string(b)
+}

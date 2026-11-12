@@ -10,6 +10,10 @@ declare class SalzolNativeModule extends NativeModule<Events> {
   lastCatalog(): Promise<string | null>;
   resolveImage(code: string): Promise<string>;
   cancelSync(): void;
+  /** OpenStreetMap geocoding through the Go core: {"found","lat","lon"} as JSON. */
+  geocode(query: string): Promise<string>;
+  /** A city's centre from the built-in store directory: {"found","lat","lon"} as JSON. */
+  cityCentre(city: string): Promise<string>;
 }
 
 // null on web, in Expo Go, or in a build made before the Go library was added.

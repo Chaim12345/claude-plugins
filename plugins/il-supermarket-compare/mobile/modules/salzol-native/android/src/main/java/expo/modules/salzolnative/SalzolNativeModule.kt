@@ -49,6 +49,17 @@ class SalzolNativeModule : Module() {
       return@AsyncFunction Mobile.resolveImage(dataDir.absolutePath, code)
     }
 
+    // Fallback geocoder: OpenStreetMap services through the Go core, with its city check.
+    // Returns {"found":bool,"lat":..,"lon":..}.
+    AsyncFunction("geocode") { query: String ->
+      return@AsyncFunction Mobile.geocode(dataDir.absolutePath, query)
+    }
+
+    // A city's centre estimated from the built-in store directory (no network).
+    AsyncFunction("cityCentre") { city: String ->
+      return@AsyncFunction Mobile.cityCentre(city)
+    }
+
     Function("cancelSync") {
       Mobile.cancelSync()
     }
