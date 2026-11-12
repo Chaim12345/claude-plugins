@@ -29,6 +29,7 @@ var ChainNames = map[string]string{
 	"wolt": "וולט מרקט", "hazihinam": "חצי חינם",
 	"bareket": "סופר ברקת", "kingstore": "קינג סטור", "maayan2000": "מעיין 2000", "zolvebegadol": "זול ובגדול",
 	"supersapir": "סופר ספיר", "shukhair": "שוק העיר", "shefa": "שפע ברכת השם", "citymarket": "סיטי מרקט",
+	"ktmarket": "קיי.טי מרקט (משנת יוסף)", "netivhased": "נתיב החסד",
 }
 
 func init() {
@@ -39,7 +40,8 @@ func init() {
 
 // ExtraChains are the portal keys added in this file, for the directory builder.
 var ExtraChains = []string{"quik", "victory", "mahsanei", "hcohen", "wolt", "hazihinam",
-	"bareket", "kingstore", "maayan2000", "zolvebegadol", "supersapir", "shukhair", "shefa", "citymarket"}
+	"bareket", "kingstore", "maayan2000", "zolvebegadol", "supersapir", "shukhair", "shefa", "citymarket",
+	"ktmarket", "netivhased"}
 
 // Portal base URLs. They are variables so tests can point the clients at httptest servers.
 var (
@@ -93,6 +95,10 @@ var binaChains = map[string]struct {
 	"shukhair":     {"shuk-hayir", []string{"7290058148776"}},
 	"shefa":        {"shefabirkathashem", []string{"7290058134977"}},
 	"citymarket":   {"citymarketkiryatgat", []string{"7290058288526", "7290058266241", "7290058288090"}},
+	// City Market's two other Bina portals (citymarketgivatayim, citymarketkiryatono) stopped
+	// publishing in 2024; their branches are in the portal above.
+	"ktmarket":   {"ktshivuk", []string{"7290058289400"}},
+	"netivhased": {"netivhased", []string{"7290058160839"}},
 }
 
 type bina struct {
