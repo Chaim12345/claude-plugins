@@ -10,6 +10,7 @@ import { dealText, dealUnit, money, shownPromos, storeKm } from "../../lib/compa
 import { series } from "../../lib/history";
 import { useData } from "../../lib/store";
 import { useWatch } from "../../lib/watchctx";
+import { sizeOf, sizeText, unitPrice, unitText } from "../../lib/units";
 
 export default function ProductSheet() {
   const t = useTheme();
@@ -27,6 +28,7 @@ export default function ProductSheet() {
   const lo = rows[0]?.v ?? 0;
   const qty = cart[p.code] ?? 0;
   const hi = rows.length ? rows[rows.length - 1].v! : 0;
+  const size = sizeOf(p);
   return (
     <View style={{ flex: 1 }}>
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, paddingTop: insets.top + 8, paddingBottom: 18, gap: 12 }}>
@@ -41,6 +43,7 @@ export default function ProductSheet() {
         <View style={{ flex: 1, gap: 4 }}>
           <T style={{ fontSize: 20, fontWeight: "800" }}>{p.name}</T>
           <T style={{ color: t.ink2, fontSize: 13 }}>{p.weighted ? "מחיר לק״ג · מוצר מקביל בכל רשת" : `ברקוד ${p.code}`}</T>
+          {size && lo > 0 ? <T style={{ color: t.ink2, fontSize: 13 }}>גודל: {sizeText(size)}{size.packs > 1 ? ` (${size.packs} אריזות)` : ""} · {unitText(unitPrice(size, lo)!)} במחיר הזול ביותר</T> : null}
         </View>
       </View>
       {rows.length > 1 && hi > lo ? (
@@ -93,6 +96,7 @@ export default function ProductSheet() {
               <View style={{ alignItems: "flex-start" }}>
                 <Num style={{ fontWeight: "800", color: v === lo ? t.good : t.ink }}>{money(v!)} ₪</Num>
                 {v! > lo ? <Num style={{ fontSize: 12, color: t.ink2 }}>+{money(v! - lo)}</Num> : null}
+                {size ? <T style={{ fontSize: 11.5, color: t.ink2 }}>{unitText(unitPrice(size, v!)!)}</T> : null}
                 {promos.filter(pr => !pr.club || deals?.club[i]).map(pr => dealUnit(pr, v!)).sort((a, b) => a - b).slice(0, 1).map(u => (
                   <Num key="u" style={{ fontSize: 12, color: t.bad, fontWeight: "700" }}>{money(u)} ₪ במבצע</Num>
                 ))}

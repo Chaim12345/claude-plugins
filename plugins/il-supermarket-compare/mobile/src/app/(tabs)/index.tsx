@@ -6,11 +6,13 @@ import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, Text, Tex
 import { AddBtn, Button, DealBadge, IconBtn, Num, PriceTag, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
 import { bestDeal, dealText, money, search, storeKm, type BestDeal, type PriceInfo, type Sort } from "../../lib/compare";
 import { FollowButton } from "../../components/WatchBits";
+import { sizeOf, sortByUnitPrice, unitPrice, unitText } from "../../lib/units";
 import { useData } from "../../lib/store";
 import type { Catalog, Product } from "../../lib/types";
 
-const SORTS: { id: Sort; label: string }[] = [
-  { id: "pop", label: "נפוצים" }, { id: "cheap", label: "הכי זול" }, { id: "gap", label: "פער מחירים" },
+type UiSort = Sort | "unit";
+const SORTS: { id: UiSort; label: string }[] = [
+  { id: "pop", label: "נפוצים" }, { id: "cheap", label: "הכי זול" }, { id: "gap", label: "פער מחירים" }, { id: "unit", label: "הכי זול ליחידה" },
 ];
 
 type View_ = "list" | "grid";
@@ -23,12 +25,16 @@ export default function Shop() {
   const { catalog, products, active, cart, setQty, toggleStore, place, ready, sync, deals } = useData();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("all");
-  const [sort, setSort] = useState<Sort>("pop");
+  const [sort, setSort] = useState<UiSort>("pop");
   const [view, setView] = useState<View_>("list");
   const [showTop, setShowTop] = useState(false);
   const listRef = useRef<FlatList<[Product, PriceInfo]>>(null);
   const dq = useDeferredValue(q);
-  const list = useMemo(() => search(products.values(), active, dq, cat, sort), [products, active, dq, cat, sort]);
+  const list = useMemo(() => {
+    const rows = search(products.values(), active, dq, cat, sort === "unit" ? "pop" : sort);
+    // cheapest per 100 g / litre / piece: grouped by kind, products with no known size last
+    return sort === "unit" ? sortByUnitPrice(rows, ([p, pi]) => unitPrice(sizeOf(p), pi.lo!)) : rows;
+  }, [products, active, dq, cat, sort]);
 
   // The compact list is the default: comparing prices means scanning many items, and a list shows
   // about five times as many per screen as the grid. The choice is remembered.
@@ -87,7 +93,7 @@ export default function Shop() {
             <StoreChips catalog={catalog} active={active} onToggle={toggleStore} />
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
               <T style={{ color: t.ink2, fontSize: 13 }}><Num style={{ fontWeight: "700", color: t.ink, fontSize: 13 }}>{list.length.toLocaleString("he-IL")}</Num> מוצרים</T>
-              <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
+              <View style={{ flexDirection: "row", gap: 4, alignItems: "center", flexShrink: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
                 {SORTS.map(s => (
                   <Pressable key={s.id} onPress={() => setSort(s.id)} accessibilityRole="button" accessibilityState={{ selected: sort === s.id }} hitSlop={{ top: 8, bottom: 8 }}
                     style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: sort === s.id ? t.ink : "transparent" }}>
@@ -127,6 +133,7 @@ const spread = (pi: PriceInfo) => (pi.hi! > pi.lo! ? Math.round((pi.hi! / pi.lo!
 /** One compact line per product: photo, name, where it's cheapest, price and add. */
 const Row = memo(function Row({ p, pi, deal, chain, qty, setQty, open }: ItemProps) {
   const t = useTheme();
+  const unit = unitPrice(sizeOf(p), pi.lo!);
   return (
     <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={`${p.name}, ${money(pi.lo!)} ₪ ב${chain}. פתיחת המחירים בכל הסניפים`}
       style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: t.surface, borderRadius: 14, padding: 10, opacity: pressed ? 0.92 : 1 })}>
@@ -137,6 +144,7 @@ const Row = memo(function Row({ p, pi, deal, chain, qty, setQty, open }: ItemPro
           <T numberOfLines={1} style={{ fontSize: 12.5, color: t.ink2, flexShrink: 1 }}>{chain} · {pi.n} סניפים</T>
           <FollowButton code={p.code} name={p.name} compact />
         </View>
+        {unit ? <T numberOfLines={1} style={{ fontSize: 12, color: t.ink2 }}>{unitText(unit)}</T> : null}
         {deal ? <DealBadge text={dealText(deal.promo)} club={deal.promo.club} /> : null}
       </View>
       <View style={{ alignItems: "flex-end", gap: 6 }}>
@@ -150,6 +158,7 @@ const Row = memo(function Row({ p, pi, deal, chain, qty, setQty, open }: ItemPro
 const Card = memo(function Card({ p, pi, deal, dealChain, chain, qty, setQty, open }: ItemProps) {
   const t = useTheme();
   const gap = spread(pi);
+  const unit = unitPrice(sizeOf(p), pi.lo!);
   return (
     <View style={{ backgroundColor: t.surface, borderRadius: 14, padding: 10, gap: 8, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}>
       <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={`מחירים בכל הסניפים: ${p.name}`} style={{ gap: 8 }}>
@@ -170,6 +179,7 @@ const Card = memo(function Card({ p, pi, deal, dealChain, chain, qty, setQty, op
           <T numberOfLines={1} style={{ fontSize: 11.5, color: t.ink2 }}>{deal.promo.desc} · {dealChain}</T>
         </View>
       ) : null}
+      {unit ? <T style={{ fontSize: 12, color: t.ink2 }}>{unitText(unit)}</T> : null}
       <T numberOfLines={1} style={{ fontSize: 12, color: t.ink2 }}>{pi.n} סניפים{gap >= 15 ? ` · פער ${gap}%` : ""}</T>
       {qty ? <Stepper p={p} qty={qty} onChange={q => setQty(p.code, q)} /> : <Button title="הוספה לסל" onPress={() => setQty(p.code, 1)} style={{ height: 40 }} />}
     </View>

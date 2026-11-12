@@ -19,6 +19,7 @@ export default function TabLayout() {
       tabBarLabelStyle: { fontWeight: "700" },
     }}>
       <Tabs.Screen name="index" options={{ title: "מוצרים", tabBarIcon: ({ color, size }) => <Ionicons name="basket-outline" color={color as string} size={size} /> }} />
+      <Tabs.Screen name="deals" options={{ title: "מבצעים", tabBarIcon: ({ color, size }) => <Ionicons name="pricetag-outline" color={color as string} size={size} /> }} />
       <Tabs.Screen name="cart" options={{
         title: best && n ? `הסל · ${money(best.total)} ₪` : "הסל",
         tabBarBadge: n || undefined, tabBarBadgeStyle: { backgroundColor: t.tag, color: t.tagInk },

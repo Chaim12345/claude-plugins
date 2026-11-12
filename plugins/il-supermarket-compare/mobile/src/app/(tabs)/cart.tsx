@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { MoreChains } from "../../components/MoreChains";
 import { CartShareBar } from "../../components/ShareButtons";
+import { SwapBanner, SwapChip, SwapSheet, useSwapSets } from "../../components/SwapSheet";
+import { TripCard } from "../../components/TripCard";
 import { Button, DealBadge, Num, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
 import { clubChains, dealText, fmtDate, money, priceInfo, storeKm, type Comparison } from "../../lib/compare";
 import type { Catalog } from "../../lib/types";
@@ -16,6 +18,8 @@ export default function CartScreen() {
   const router = useRouter();
   const { catalog, comparison: c, active, setQty, clearCart, place, saved, club, setClub, setClubAll, cart } = useData();
   const { usual, setUsual } = useWatch();
+  const swaps = useSwapSets();
+  const [swapFor, setSwapFor] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -42,6 +46,7 @@ export default function CartScreen() {
         <Action icon="clipboard-outline" label="הדבקה" onPress={() => router.push("/list")} />
         {canScan() ? <Action icon="barcode-outline" label="סריקה" onPress={() => router.push("/scan")} /> : null}
       </View>
+      <SwapBanner total={swaps.total} count={swaps.sets.length} />
       <Section title={`הפריטים (${c.items.length})`} action={
         confirmClear
           ? <Pressable onPress={() => { clearCart(); setConfirmClear(false); }} accessibilityRole="button" hitSlop={8}><Text style={{ color: t.bad, fontWeight: "800" }}>למחוק הכל?</Text></Pressable>
@@ -64,11 +69,13 @@ export default function CartScreen() {
                     <T style={{ color: t.bad, fontSize: 12, fontWeight: "700" }}>חוסך {money(b.shelf - b.cost)} ₪ ב{catalog.stores[b.i].chain}</T>
                   </View>
                 ) : null}
+                {swaps.byCode.get(p.code) ? <SwapChip saving={swaps.byCode.get(p.code)!.options[0].save} onPress={() => setSwapFor(p.code)} /> : null}
               </View>
             </View>
           );
         })}
       </Section>
+      <SwapSheet set={swapFor ? swaps.byCode.get(swapFor) ?? null : null} onClose={() => setSwapFor(null)} />
 
       <CartShareBar />
       <Section title="איפה לקנות">
@@ -111,6 +118,8 @@ export default function CartScreen() {
         </View>
         <MoreChains catalog={catalog} comparison={c} active={active} place={place} />
       </Section>
+
+      <TripCard />
 
       <Section title="הסל הרגיל שלי">
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 }}>

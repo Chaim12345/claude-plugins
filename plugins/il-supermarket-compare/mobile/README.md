@@ -61,6 +61,11 @@ The background task is registered only while notifications are on and something 
 | `src/app/(tabs)/cart.tsx` | Basket comparison: per-branch totals, like-for-like %, missing items, split purchase |
 | `src/app/product/[code].tsx` | A product's price at every branch |
 | `src/app/location.tsx` | Address or GPS, radius, preview of the branches to compare |
+| `src/app/(tabs)/deals.tsx` | Deals tab: every active promotion across your branches, with sorting, filters, an honesty check and a "best deals" / "ending soon" top |
+| `src/lib/dealsFeed.ts` | The deals feed: dedupe across a chain's branches, club handling, real saving vs the cheapest shelf price anywhere |
+| `src/lib/units.ts` | Pack sizes parsed from names, and unit prices (per 100 g / litre / piece); no unit price when unsure |
+| `src/lib/swaps.ts` | Smart swaps in the cart: same product type, size within ±15%, same kind; conservative |
+| `src/lib/trip.ts` | "Is a second stop worth it?": split saving against driving cost (setting stored locally) |
 | `src/lib/compare.ts` | Search and basket maths (tested with `node --test`) |
 | `src/lib/engine.ts` | On-device vs server engine |
 | `src/lib/store.tsx` | App state: catalog, cart, location, sync progress |
