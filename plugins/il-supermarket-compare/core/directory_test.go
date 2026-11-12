@@ -99,3 +99,22 @@ func TestConfigFor(t *testing.T) {
 		t.Errorf("config = %+v", c)
 	}
 }
+
+func TestPickHitPrefersTypedCity(t *testing.T) {
+	hits := []nominatimHit{
+		{Lat: "32.43", Lon: "34.91", Address: map[string]string{"town": "חדרה", "state": "מחוז חיפה"}},
+		{Lat: "32.81", Lon: "34.99", Address: map[string]string{"city": "חיפה", "suburb": "הדר הכרמל"}},
+	}
+	if h := pickHit(hits, "הרצל 10, חיפה"); h == nil || h.Lat != "32.81" {
+		t.Errorf("picked %+v, want the Haifa result", h)
+	}
+	if h := pickHit(hits, "הרצל 10"); h == nil || h.Lat != "32.43" {
+		t.Errorf("no city given: want the first result, got %+v", h)
+	}
+	if h := pickHit(hits[:1], "הרצל 10, נתניה"); h != nil {
+		t.Errorf("no result in the typed city: want none, got %+v", h)
+	}
+	if h := pickHit([]nominatimHit{{Lat: "1", Address: map[string]string{"city": "תל אביב-יפו"}}}, "דיזנגוף 50, תל אביב"); h == nil {
+		t.Errorf("תל אביב should match תל אביב-יפו")
+	}
+}

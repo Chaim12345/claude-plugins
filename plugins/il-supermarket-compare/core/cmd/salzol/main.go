@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	core "github.com/Chaim12345/claude-plugins/plugins/il-supermarket-compare/core"
 )
@@ -57,7 +58,10 @@ func main() {
 		out := fs.String("out", "directory.json", "output file")
 		geoCache := fs.String("geocache", "salzol-data/geocode.json", "geocode cache")
 		fs.Parse(os.Args[2:])
-		chains := append([]string{"shufersal", "carrefour"}, sortedKeys(core.PublishedPricesUsers)...)
+		chains := append(append([]string{"shufersal", "carrefour"}, sortedKeys(core.PublishedPricesUsers)...), core.ExtraChains...)
+		if only := fs.Arg(0); only != "" { // salzol directory -out x.json wolt,bareket: just these chains
+			chains = strings.Split(only, ",")
+		}
 		geo := core.NewGeocoder(*geoCache)
 		d, err := core.BuildDirectory(ctx, chains, geo, nil, func(e core.Event) {
 			log.Printf("%-8s %-12s %d %s", e.Phase, e.Store, e.Items, e.Message)

@@ -27,6 +27,16 @@ var PublishedPricesUsers = map[string]string{
 	"RamiLevi": "רמי לוי", "osherad": "אושר עד", "yohananof": "יוחננוף", "TivTaam": "טיב טעם",
 	"Keshet": "קשת טעמים", "doralon": "דור אלון (am:pm)", "freshmarket": "פרשמרקט",
 	"SalachD": "סאלח דבאח", "Stop_Market": "סטופ מרקט", "politzer": "פוליצר",
+	"Paz_bo": "יילו", "yuda_ho": "סופר יודה", "SuperCofixApp": "קופיקס",
+}
+
+// ppLogins holds the portal logins that aren't "username, empty password, root folder". The chains
+// publish these credentials themselves, as the price-transparency law requires (source: see
+// portals_extra.go).
+var ppLogins = map[string]struct{ password, folder string }{
+	"SalachD": {password: "12345"},
+	"Paz_bo":  {password: "paz468"},
+	"yuda_ho": {password: "Yud@147", folder: "/Yuda"},
 }
 
 // FileRef points at one published file. Name is stable for a given publication, so it doubles as a cache key.
@@ -57,8 +67,11 @@ func NewPortal(chain string, client *http.Client) (Portal, error) {
 	switch chain {
 	case "shufersal":
 		return &shufersal{c: client}, nil
-	case "carrefour":
-		return &carrefour{c: client}, nil
+	case "carrefour": // Carrefour and Yayno Bitan
+		return &publishPrice{c: client, chain: chain, base: "https://prices.carrefour.co.il"}, nil
+	}
+	if p, ok := newExtraPortal(chain, client); ok {
+		return p, nil
 	}
 	if _, ok := PublishedPricesUsers[chain]; ok {
 		jar, _ := cookiejar.New(nil)
@@ -224,7 +237,7 @@ func (p *publishedPrices) login(ctx context.Context) error {
 	if m == nil {
 		return fmt.Errorf("publishedprices: no login token for %s", p.user)
 	}
-	if err := p.post(ctx, "/login/user", url.Values{"username": {p.user}, "password": {""}, "csrftoken": {m[1]}}, nil); err != nil {
+	if err := p.post(ctx, "/login/user", url.Values{"username": {p.user}, "password": {ppLogins[p.user].password}, "csrftoken": {m[1]}}, nil); err != nil {
 		return err
 	}
 	h, err = getText(ctx, p.c, ppURL+"/file")
@@ -269,13 +282,21 @@ func (p *publishedPrices) list(ctx context.Context, search string) ([]FileRef, e
 			Fname string `json:"fname"`
 		} `json:"aaData"`
 	}
-	form := url.Values{"sEcho": {"1"}, "iDisplayStart": {"0"}, "iDisplayLength": {"100000"}, "sSearch": {search}, "cd": {"/"}, "csrftoken": {p.token}}
+	folder := ppLogins[p.user].folder
+	if folder == "" {
+		folder = "/"
+	}
+	form := url.Values{"sEcho": {"1"}, "iDisplayStart": {"0"}, "iDisplayLength": {"100000"}, "sSearch": {search}, "cd": {folder}, "csrftoken": {p.token}}
 	if err := p.post(ctx, "/file/json/dir", form, &r); err != nil {
 		return nil, err
 	}
 	out := make([]FileRef, 0, len(r.AAData))
+	prefix := strings.Trim(ppLogins[p.user].folder, "/")
+	if prefix != "" {
+		prefix += "/"
+	}
 	for _, f := range r.AAData {
-		out = append(out, FileRef{Name: f.Fname, URL: ppURL + "/file/d/" + f.Fname})
+		out = append(out, FileRef{Name: f.Fname, URL: ppURL + "/file/d/" + prefix + f.Fname})
 	}
 	return out, nil
 }
@@ -325,75 +346,8 @@ func (p *publishedPrices) Open(ctx context.Context, f FileRef) (io.ReadCloser, e
 	return resp.Body, nil
 }
 
-// ---------------- Carrefour ----------------
-
-const carURL = "https://prices.carrefour.co.il"
-
-type carrefour struct{ c *http.Client }
+// ---------------- Carrefour / PublishPrice ----------------
+// See publishPrice in portals_extra.go. These two patterns parse its index page.
 
 var carPathRx = regexp.MustCompile(`const path = '(\d+)'`)
 var carNameRx = regexp.MustCompile(`"name":"([^"]+)"`)
-
-func (s *carrefour) index(ctx context.Context) ([]FileRef, error) {
-	h, err := getText(ctx, s.c, carURL+"/")
-	if err != nil {
-		return nil, err
-	}
-	m := carPathRx.FindStringSubmatch(h)
-	if m == nil {
-		return nil, fmt.Errorf("carrefour: index format changed")
-	}
-	var out []FileRef
-	for _, n := range carNameRx.FindAllStringSubmatch(h, -1) {
-		out = append(out, FileRef{Name: n[1], URL: fmt.Sprintf("%s/%s/%s", carURL, m[1], n[1])})
-	}
-	return out, nil
-}
-
-func (s *carrefour) Stores(ctx context.Context) ([]StoreRow, error) {
-	idx, err := s.index(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var st []FileRef
-	for _, f := range idx {
-		if strings.HasPrefix(f.Name, "Stores") {
-			st = append(st, f)
-		}
-	}
-	if len(st) == 0 {
-		return nil, fmt.Errorf("carrefour: no Stores file")
-	}
-	rc, err := s.Open(ctx, newest(st))
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-	return ParseStoresFile(rc, "carrefour")
-}
-
-func (s *carrefour) LatestPriceFull(ctx context.Context, storeID string) (FileRef, error) {
-	idx, err := s.index(ctx)
-	if err != nil {
-		return FileRef{}, err
-	}
-	tag := storeTag(storeID)
-	var mine []FileRef
-	for _, f := range idx {
-		if strings.HasPrefix(f.Name, "PriceFull") && strings.Contains(f.Name, tag) {
-			mine = append(mine, f)
-		}
-	}
-	if len(mine) == 0 {
-		return FileRef{}, ErrNotPublished{"carrefour", storeID}
-	}
-	return newest(mine), nil
-}
-
-func (s *carrefour) Open(ctx context.Context, f FileRef) (io.ReadCloser, error) {
-	resp, err := get(ctx, s.c, f.URL)
-	if err != nil {
-		return nil, err
-	}
-	return resp.Body, nil
-}

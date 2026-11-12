@@ -55,7 +55,7 @@ func (g *Geocoder) Lookup(ctx context.Context, q string) ([2]float64, bool, erro
 			return [2]float64{}, false, ctx.Err()
 		}
 	}
-	u := "https://nominatim.openstreetmap.org/search?" + url.Values{"q": {q}, "format": {"json"}, "limit": {"1"}, "countrycodes": {"il"}}.Encode()
+	u := "https://nominatim.openstreetmap.org/search?" + url.Values{"q": {q}, "format": {"json"}, "limit": {"5"}, "countrycodes": {"il"}, "addressdetails": {"1"}}.Encode()
 	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept-Language", "he")
@@ -68,17 +68,14 @@ func (g *Geocoder) Lookup(ctx context.Context, q string) ([2]float64, bool, erro
 	if resp.StatusCode != 200 {
 		return [2]float64{}, false, fmt.Errorf("nominatim: HTTP %d", resp.StatusCode)
 	}
-	var r []struct {
-		Lat string `json:"lat"`
-		Lon string `json:"lon"`
-	}
+	var r []nominatimHit
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
 		return [2]float64{}, false, err
 	}
 	var v *[2]float64
-	if len(r) > 0 {
-		lat, _ := strconv.ParseFloat(r[0].Lat, 64)
-		lon, _ := strconv.ParseFloat(r[0].Lon, 64)
+	if hit := pickHit(r, q); hit != nil {
+		lat, _ := strconv.ParseFloat(hit.Lat, 64)
+		lon, _ := strconv.ParseFloat(hit.Lon, 64)
 		v = &[2]float64{lat, lon}
 	}
 	g.cache[q] = v
@@ -89,6 +86,42 @@ func (g *Geocoder) Lookup(ctx context.Context, q string) ([2]float64, bool, erro
 		return [2]float64{}, false, nil
 	}
 	return *v, true, nil
+}
+
+type nominatimHit struct {
+	Lat     string            `json:"lat"`
+	Lon     string            `json:"lon"`
+	Address map[string]string `json:"address"`
+}
+
+// pickHit chooses the result in the city the query names (its last comma-separated part).
+// Nominatim matches a city name anywhere in the hierarchy, so "הרצל 10, חיפה" can rank Herzl 10 in
+// Hadera (which is in Haifa *District*) above Herzl Street in Haifa itself.
+func pickHit(hits []nominatimHit, q string) *nominatimHit {
+	if len(hits) == 0 {
+		return nil
+	}
+	parts := strings.Split(q, ",")
+	if len(parts) < 2 {
+		return &hits[0]
+	}
+	city := normCity(parts[len(parts)-1])
+	if city == "" || city == normCity("ישראל") {
+		return &hits[0]
+	}
+	for i := range hits {
+		for _, k := range []string{"city", "town", "village", "municipality", "hamlet", "suburb"} {
+			if c := normCity(hits[i].Address[k]); c != "" && (c == city || strings.Contains(c, city) || strings.Contains(city, c)) {
+				return &hits[i]
+			}
+		}
+	}
+	return nil // nothing in that city: better no answer than the wrong town
+}
+
+func normCity(s string) string {
+	s = strings.NewReplacer("-", " ", "–", " ", "\"", "", "״", "", "'", "", "׳", "").Replace(s)
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // Save writes the cache to disk.
@@ -138,14 +171,21 @@ func (g *Geocoder) LocateStore(ctx context.Context, addr, city string) (ll [2]fl
 			tries = append(tries, street+", "+city)
 		}
 		seen := map[string]bool{}
+		centre, hasCentre, _ := g.Lookup(ctx, city+", ישראל")
 		for _, q := range tries {
 			if seen[q] || strings.TrimSpace(strings.Trim(q, ", ")) == city {
 				continue
 			}
 			seen[q] = true
-			if v, found, err := g.Lookup(ctx, q); err == nil && found {
-				return v, true, true
+			v, found, err := g.Lookup(ctx, q)
+			if err != nil || !found {
+				continue
 			}
+			// A street match far from the city centre is the same street name in another town.
+			if hasCentre && Km(v[0], v[1], centre[0], centre[1]) > maxFromCentreKm {
+				continue
+			}
+			return v, true, true
 		}
 	}
 	if v, found, err := g.Lookup(ctx, city+", ישראל"); err == nil && found {
@@ -153,6 +193,10 @@ func (g *Geocoder) LocateStore(ctx context.Context, addr, city string) (ll [2]fl
 	}
 	return
 }
+
+// maxFromCentreKm bounds how far a branch can be from its city's centre; Jerusalem, the widest
+// city, spans about 10 km from its centre.
+const maxFromCentreKm = 10.0
 
 // Km is the great-circle distance between two points.
 func Km(lat1, lon1, lat2, lon2 float64) float64 {

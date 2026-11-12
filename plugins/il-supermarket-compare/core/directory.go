@@ -84,7 +84,7 @@ func banner(chain string, r StoreRow) string {
 		}
 		return "קרפור"
 	}
-	if n, ok := PublishedPricesUsers[chain]; ok {
+	if n, ok := ChainNames[chain]; ok {
 		return n
 	}
 	return chain
@@ -95,6 +95,7 @@ func banner(chain string, r StoreRow) string {
 var DiscountBanners = map[string]bool{
 	"רמי לוי": true, "אושר עד": true, "יוחננוף": true, "קשת טעמים": true, "יש חסד": true,
 	"שופרסל יוניברס": true, "שופרסל דיל": true, "קרפור היפר": true,
+	"ויקטורי": true, "מחסני השוק": true, "חצי חינם": true, "סופר יודה": true, "יילו": true,
 }
 
 var notSupermarketRx = regexp.MustCompile(`(?i)(^|\s)BE(\s|$)|אונליין|online|@|https?://|מרלוג|מחסן`)
