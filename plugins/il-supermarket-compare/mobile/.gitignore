@@ -48,3 +48,4 @@ yarn-error.*
 modules/salzol-native/android/libs/*.aar
 modules/salzol-native/ios/Frameworks/*.xcframework
 modules/salzol-native/android/build/
+e2e/out/

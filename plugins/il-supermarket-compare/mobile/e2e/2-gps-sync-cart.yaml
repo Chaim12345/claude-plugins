@@ -1,0 +1,33 @@
+# GPS location (the emulator is placed in Ramat Gan) -> on-device sync of real price files ->
+# add a product -> basket comparison.
+appId: il.salzol.app
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "בחירת מיקום"
+    timeout: 60000
+- tapOn:
+    text: "בחירת מיקום"
+    index: 0
+- tapOn: "המיקום הנוכחי שלי"
+- tapOn:
+    text: "(While using the app|Only this time|Allow|ALLOW)"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*סניפים להשוואה סביב.*"
+    timeout: 60000
+- takeScreenshot: gps-preview
+- tapOn: "השוואה כאן"
+- extendedWaitUntil:
+    visible: "הוספה לסל"
+    timeout: 300000
+- takeScreenshot: products-after-sync
+- tapOn:
+    text: "הוספה לסל"
+    index: 0
+- tapOn: "הסל.*"
+- extendedWaitUntil:
+    visible: "איפה לקנות"
+    timeout: 30000
+- takeScreenshot: cart
