@@ -28,7 +28,7 @@ export default function CartScreen() {
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 12 }}>
         <T style={{ fontSize: 18, fontWeight: "700", textAlign: "center" }}>הסל ריק</T>
         <T style={{ color: t.ink2, textAlign: "center" }}>הוסיפו מוצרים, ונראה לכם באיזה סניף הסל כולו הכי זול.</T>
-        <Button title="למוצרים" onPress={() => router.navigate("/")} />
+        <Button title="למוצרים" onPress={() => router.navigate("/products")} />
         <Button kind="ghost" title="הדבקת רשימת קניות" onPress={() => router.push("/list")} />
         {canScan() ? <Button kind="ghost" title="סריקת ברקוד" onPress={() => router.push("/scan")} /> : null}
         {saved.length ? <Button kind="ghost" title={`רשימות שמורות (${saved.length})`} onPress={() => router.push("/saved")} /> : null}
@@ -105,6 +105,7 @@ export default function CartScreen() {
                 </T>
               ) : null}
               {r.missing.length ? <T style={{ color: t.bad, fontSize: 12.5 }}>חסר: {r.missing.join("، ")}</T> : null}
+              {r.doubt.length ? <T style={{ color: t.warn, fontSize: 12.5 }}>אולי לא על המדף (לא נמכר כאן חודש ויותר): {r.doubt.join("، ")}</T> : null}
             </Pressable>
           );
         })}
@@ -211,6 +212,11 @@ function Hero({ catalog, c }: { catalog: Catalog; c: Comparison }) {
         ) : null}
       </View>
       {best.missing.length ? <Text style={{ color: t.brandInk, fontSize: 12.5, textAlign: "right", writingDirection: "rtl" }}>חסרים בסניף: {best.missing.length} מוצרים</Text> : null}
+      {best.doubt.length ? (
+        <Text style={{ color: t.brandInk, fontSize: 12.5, textAlign: "right", writingDirection: "rtl", opacity: 0.92 }}>
+          שימו לב: {best.doubt.length === 1 ? "מוצר אחד בסל לא נמכר" : `${best.doubt.length} מוצרים בסל לא נמכרו`} בסניף הזה חודש ויותר, וייתכן שאינם על המדף.
+        </Text>
+      ) : null}
     </View>
   );
 }

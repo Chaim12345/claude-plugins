@@ -115,7 +115,7 @@ export function ProductImage({ p, size }: { p: Product; size: number | "fill" })
       ) : (
         <Ionicons name={CAT_ICON[p.cat] ?? CAT_ICON.other} size={iconSize} color={t.ink} style={{ opacity: 0.55 }} />
       )}
-      {p.weighted ? <View style={{ position: "absolute", top: 4, left: 4, backgroundColor: t.surface, borderRadius: 6, paddingHorizontal: 5 }}><Text style={{ fontSize: 10.5, fontWeight: "700", color: t.ink }}>לק״ג</Text></View> : null}
+      {p.weighted && (size === "fill" || size >= 60) ? <View style={{ position: "absolute", top: 4, left: 4, backgroundColor: t.surface, borderRadius: 6, paddingHorizontal: 5 }}><Text style={{ fontSize: 10.5, fontWeight: "700", color: t.ink }}>לק״ג</Text></View> : null}
     </View>
   );
 }

@@ -15,6 +15,8 @@ export default function More() {
   const { place, saved } = useData();
   const { unread } = useWatch();
   const rows: { icon: IconName; title: string; hint: string; to: string; badge?: number; hidden?: boolean }[] = [
+    { icon: "podium-outline", title: "מדד המחירים סביבכם", hint: "איזה סניף הכי זול בסך הכל ובכל קטגוריה, ואיפה הפערים הגדולים", to: "/insights", hidden: !place },
+    { icon: "pulse-outline", title: "מחירים שזזו", hint: "מה הוזל ומה התייקר מאז העדכון הקודם", to: "/changes", hidden: !place },
     { icon: "map-outline", title: "מפת הסניפים", hint: "איפה הסניפים, כמה הסל עולה בכל אחד, וניווט", to: "/map", hidden: !place },
     { icon: "eye-outline", title: "המעקב שלי", hint: "מוצרים שאתם עוקבים אחריהם ומגמת המחיר שלהם", to: "/watch" },
     { icon: "notifications-outline", title: "מה חדש", hint: "מבצעים וירידות מחיר שמצאנו עבורכם", to: "/inbox", badge: unread },

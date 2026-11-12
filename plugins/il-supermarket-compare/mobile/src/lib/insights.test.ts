@@ -40,6 +40,8 @@ test("size: chains' agreed figure beats the name, a multi-pack in the name beats
   // ...but is better than nothing
   assert.deepEqual(sizeOf(p("רוטב צ'ילי", [300, "ml", 1])), { kind: "volume", amount: 300, packs: 1 });
   assert.equal(sizeOf(p("מסטיק")), null);
+  // the chains say 6000 g for a four-pack of 1.5 L soda: the amount is theirs, the unit the name's
+  assert.deepEqual(sizeOf({ ...p("סודה אננס 1.5 ליטר רביעייה", [6000, "g", 3]), cat: "drinks" }), { kind: "volume", amount: 6000, packs: 1 });
 });
 
 test("basket: an item the branch has not sold for a month is priced but flagged as doubtful", () => {

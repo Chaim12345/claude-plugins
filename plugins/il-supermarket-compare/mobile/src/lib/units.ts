@@ -168,6 +168,8 @@ export function sizeOf(p: Sized): Size | null {
   z = named;
   if (s && KIND_OF[s[1]] && s[0] > 0) {
     const stated: Size = { kind: KIND_OF[s[1]], amount: s[0], packs: 1 };
+    // Chains mix up grams and millilitres; when the name names the unit ("1.5 ליטר רביעייה"), its unit wins.
+    if (named && named.kind !== "count" && stated.kind !== "count" && named.kind !== stated.kind) stated.kind = named.kind;
     if (named && named.packs > 1) z = named;
     else if (s[2] >= 2) z = named && named.kind === stated.kind && Math.abs(named.amount - stated.amount) <= 0.02 * stated.amount ? named : stated;
     else z = named ?? stated;

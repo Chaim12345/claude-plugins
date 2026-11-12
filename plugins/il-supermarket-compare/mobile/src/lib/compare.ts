@@ -49,26 +49,37 @@ export function changedDaysAgo(p: Product, i: number): number | null {
 
 export type PriceInfo = { lo: number | null; hi: number | null; at: number; n: number };
 
-/** Cheapest and dearest price among the active stores. */
+/**
+ * Cheapest and dearest price among the active stores. A price at a branch that has not sold the
+ * item for a month doesn't set the range while another branch is selling it: "cheapest at X" should
+ * name a shelf the product is on. n counts every branch that lists it.
+ */
 export function priceInfo(p: Product, active: number[]): PriceInfo {
   let lo: number | null = null, hi: number | null = null, at = -1, n = 0;
+  let slo: number | null = null, shi: number | null = null, sat = -1;
   for (const i of active) {
     const v = p.prices[i];
     if (v == null) continue;
     n++;
+    if (isStale(p, i)) {
+      if (slo == null || v < slo) { slo = v; sat = i; }
+      if (shi == null || v > shi) shi = v;
+      continue;
+    }
     if (lo == null || v < lo) { lo = v; at = i; }
     if (hi == null || v > hi) hi = v;
   }
-  return { lo, hi, at, n };
+  return lo == null ? { lo: slo, hi: shi, at: sat, n } : { lo, hi, at, n };
 }
 
 export type Sort = "pop" | "cheap" | "gap";
 
-export function search(all: Iterable<Product>, active: number[], q: string, cat: string, sort: Sort): [Product, PriceInfo][] {
+export function search(all: Iterable<Product>, active: number[], q: string, cat: string, sort: Sort, keep?: (p: Product) => boolean): [Product, PriceInfo][] {
   const terms = norm(q).split(" ").filter(Boolean);
   const out: [Product, PriceInfo][] = [];
   for (const p of all) {
     if (cat !== "all" && p.cat !== cat) continue;
+    if (keep && !keep(p)) continue;
     if (terms.length && !terms.every(t => p.key.includes(t))) continue;
     const pi = priceInfo(p, active);
     if (pi.lo == null) continue;

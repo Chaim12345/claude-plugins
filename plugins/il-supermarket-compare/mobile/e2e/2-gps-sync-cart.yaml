@@ -28,10 +28,16 @@ appId: il.salzol.app
     timeout: 60000
 - takeScreenshot: gps-preview
 - tapOn: "השוואה כאן"
+# Home appears once the price files are synced and compared.
+- extendedWaitUntil:
+    visible: "קטגוריות"
+    timeout: 300000
+- takeScreenshot: home-after-sync
+- tapOn: "מוצרים"
 - extendedWaitUntil:
     visible: "הוספה לסל"
-    timeout: 300000
-- takeScreenshot: products-after-sync
+    timeout: 30000
+- takeScreenshot: products
 - tapOn:
     text: "הוספה לסל"
     index: 0

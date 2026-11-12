@@ -18,10 +18,13 @@ export default function TabLayout() {
       tabBarStyle: { backgroundColor: t.surface, borderTopColor: t.line },
       tabBarLabelStyle: { fontWeight: "700" },
     }}>
-      <Tabs.Screen name="index" options={{ title: "מוצרים", tabBarIcon: ({ color, size }) => <Ionicons name="basket-outline" color={color as string} size={size} /> }} />
+      <Tabs.Screen name="index" options={{ title: "בית", tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" color={color as string} size={size} /> }} />
+      <Tabs.Screen name="products" options={{ title: "מוצרים", tabBarIcon: ({ color, size }) => <Ionicons name="search-outline" color={color as string} size={size} /> }} />
       <Tabs.Screen name="deals" options={{ title: "מבצעים", tabBarIcon: ({ color, size }) => <Ionicons name="pricetag-outline" color={color as string} size={size} /> }} />
       <Tabs.Screen name="cart" options={{
-        title: best && n ? `הסל · ${money(best.total)} ₪` : "הסל",
+        // Five tabs leave room for the total alone; screen readers (and the tests) still get "הסל".
+        title: best && n ? `${money(best.total)} ₪` : "הסל",
+        tabBarAccessibilityLabel: best && n ? `הסל: ${n} פריטים, ${money(best.total)} ₪` : "הסל",
         tabBarBadge: n || undefined, tabBarBadgeStyle: { backgroundColor: t.tag, color: t.tagInk },
         tabBarIcon: ({ color, size }) => <Ionicons name="cart-outline" color={color as string} size={size} />,
       }} />

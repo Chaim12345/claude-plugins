@@ -97,7 +97,7 @@ export default function Watch() {
         <T style={{ color: t.ink2, textAlign: "center", padding: 16 }}>עוד לא עוקבים אחרי מוצרים. לחצו על ״עקוב״ בכרטיס מוצר.</T>
       )}
       {missing > 0 ? <T style={{ color: t.ink2, fontSize: 12.5 }}>{missing} מוצרים במעקב לא מופיעים במחירון הנוכחי (אולי באזור אחר), ולכן לא מוצגים כאן.</T> : null}
-      <View style={{ alignItems: "center" }}><Button kind="ghost" title="לחיפוש מוצרים" onPress={() => router.navigate("/")} /></View>
+      <View style={{ alignItems: "center" }}><Button kind="ghost" title="לחיפוש מוצרים" onPress={() => router.navigate("/products")} /></View>
     </ScrollView>
   );
 }

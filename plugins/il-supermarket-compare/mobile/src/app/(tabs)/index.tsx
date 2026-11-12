@@ -1,56 +1,54 @@
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
-import { AddBtn, Button, DealBadge, IconBtn, Num, PriceTag, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
-import { bestDeal, dealText, money, search, storeKm, type BestDeal, type PriceInfo, type Sort } from "../../lib/compare";
-import { FollowButton } from "../../components/WatchBits";
-import { sizeOf, sortByUnitPrice, unitPrice, unitText } from "../../lib/units";
+import { useMemo } from "react";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+import { Card, MiniProduct, Pct, PctBar, SearchButton, SectionHead } from "../../components/blocks";
+import { DealCard } from "../../components/DealCard";
+import { Button, CAT_ICON, CAT_TINT, IconBtn, Num, ProductImage, T, canScan, useTheme } from "../../components/ui";
+import { fmtDate, money, priceInfo, storeKm } from "../../lib/compare";
+import { bestOfWeek, cartQty, defaultFilters, filterDeals, type DealItem } from "../../lib/dealsFeed";
+import { dealFeed } from "../../lib/feed";
+import { priceIndex, recentlyChanged, regulars, summarizeChanges, topGaps } from "../../lib/insights";
 import { useData } from "../../lib/store";
-import type { Catalog, Product } from "../../lib/types";
 
-type UiSort = Sort | "unit";
-const SORTS: { id: UiSort; label: string }[] = [
-  { id: "pop", label: "נפוצים" }, { id: "cheap", label: "הכי זול" }, { id: "gap", label: "פער מחירים" }, { id: "unit", label: "הכי זול ליחידה" },
-];
+// One-line labels for the category tiles (the full names are on the products screen).
+const SHORT: Record<string, string> = { produce: "פירות וירקות", meat: "בשר ודגים", dairy: "חלב וביצים", bakery: "לחם ומאפים", drinks: "משקאות", snacks: "חטיפים",
+  pantry: "מזווה", frozen: "קפואים", cleaning: "ניקיון", care: "טיפוח", pets: "חיות מחמד", other: "שונות" };
 
-type View_ = "list" | "grid";
-const VIEW_KEY = "salzol:view";
-
-export default function Shop() {
+/**
+ * Home: what the price files say about the branches around you, before you search for anything.
+ * Where it's cheapest overall, today's real deals, what you usually buy, what moved in price and
+ * where comparing pays most.
+ */
+export default function Home() {
   const t = useTheme();
   const router = useRouter();
-  const { width } = useWindowDimensions();
-  const { catalog, products, active, cart, setQty, toggleStore, place, ready, sync, deals } = useData();
-  const [q, setQ] = useState("");
-  const [cat, setCat] = useState("all");
-  const [sort, setSort] = useState<UiSort>("pop");
-  const [view, setView] = useState<View_>("list");
-  const [showTop, setShowTop] = useState(false);
-  const listRef = useRef<FlatList<[Product, PriceInfo]>>(null);
-  const dq = useDeferredValue(q);
-  const list = useMemo(() => {
-    const rows = search(products.values(), active, dq, cat, sort === "unit" ? "pop" : sort);
-    // cheapest per 100 g / litre / piece: grouped by kind, products with no known size last
-    return sort === "unit" ? sortByUnitPrice(rows, ([p, pi]) => unitPrice(sizeOf(p), pi.lo!)) : rows;
-  }, [products, active, dq, cat, sort]);
+  const { catalog, products, active, cart, club, place, ready, sync, freq, changes, setQty, addMany } = useData();
 
-  // The compact list is the default: comparing prices means scanning many items, and a list shows
-  // about five times as many per screen as the grid. The choice is remembered.
-  useEffect(() => { AsyncStorage.getItem(VIEW_KEY).then(v => { if (v === "grid" || v === "list") setView(v); }).catch(() => {}); }, []);
-  const chooseView = (v: View_) => { setView(v); AsyncStorage.setItem(VIEW_KEY, v).catch(() => {}); };
-  const cols = view === "grid" ? Math.max(2, Math.min(6, Math.floor((width - 24) / 190))) : Math.max(1, Math.floor(width / 480));
+  const index = useMemo(() => (catalog ? priceIndex(products.values(), active) : []), [catalog, products, active]);
+  const feed = useMemo(() => (catalog?.promos ? dealFeed(catalog, products, active, club) : null), [catalog, products, active, club]);
+  const best = useMemo(() => {
+    if (!feed) return [];
+    const hasClub = Object.values(club).some(Boolean);
+    return bestOfWeek(filterDeals(feed.items, { ...defaultFilters, club: hasClub ? "club" : "none", onlyReal: false }).items, 8);
+  }, [feed, club]);
+  const mine = useMemo(() => regulars(freq, products, active, cart, 12), [freq, products, active, cart]);
+  const moved = useMemo(() => (catalog ? summarizeChanges(changes, products, catalog, active) : null), [changes, products, catalog, active]);
+  const dated = useMemo(() => (catalog ? recentlyChanged(products.values(), active, 7).total : 0), [catalog, products, active]);
+  const gaps = useMemo(() => (catalog ? topGaps(products.values(), active, 5) : []), [catalog, products, active]);
+
+  const open = (code: string) => router.push(`/product/${encodeURIComponent(code)}`);
+  const browse = (cat?: string, focus?: boolean) => router.navigate({ pathname: "/products", params: { ...(cat ? { cat } : {}), ...(focus ? { focus: "1" } : {}), t: String(Date.now()) } });
 
   if (!catalog) {
     return (
       <View style={{ flex: 1, padding: 24, alignItems: "center", justifyContent: "center", gap: 14 }}>
         {sync.running || !ready ? <ActivityIndicator size="large" color={t.brand} /> : null}
-        <T style={{ fontSize: 18, fontWeight: "700", textAlign: "center" }}>{sync.running ? "מוריד את המחירונים של היום…" : ready && !place ? "איפה אתם קונים?" : "טוען…"}</T>
+        <T style={{ fontSize: 20, fontWeight: "800", textAlign: "center" }}>{sync.running ? "מוריד את המחירונים של היום…" : ready && !place ? "איפה אתם קונים?" : "טוען…"}</T>
         {sync.running ? <T style={{ color: t.ink2, textAlign: "center" }}>בפעם הראשונה זה לוקח כמה שניות.</T> : null}
         {ready && !place && !sync.running ? (
           <>
-            <T style={{ color: t.ink2, textAlign: "center" }}>בחרו כתובת או מיקום נוכחי, ונשווה את הסופרמרקטים שסביבכם לפי המחירונים הרשמיים של הרשתות.</T>
+            <T style={{ color: t.ink2, textAlign: "center", lineHeight: 22 }}>בחרו כתובת או מיקום נוכחי, ונשווה את הסופרמרקטים שסביבכם לפי המחירונים הרשמיים של הרשתות.</T>
             <Button title="בחירת מיקום" onPress={() => router.push("/location")} />
           </>
         ) : null}
@@ -59,163 +57,153 @@ export default function Shop() {
     );
   }
 
+  const top = index.slice(0, 3);
+  const worst = index.length > 3 ? index[index.length - 1] : null;
+  const span = index.length ? Math.max(...index.map(r => Math.abs(r.pct))) : 1;
+  const basis = index.length ? Math.max(...index.map(r => r.n)) : 0;
+
   return (
     <View style={{ flex: 1 }}>
-      {/* Pinned: the search stays in reach however far down the list you are. */}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: t.bg, borderBottomWidth: 1, borderBottomColor: t.line }}>
-        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", backgroundColor: t.surface2, borderRadius: 22, paddingHorizontal: 14, height: 44, gap: 8, minWidth: 0 }}>
-          <Ionicons name="search" size={18} color={t.ink2} />
-          <TextInput value={q} onChangeText={setQ} placeholder="חיפוש: חלב, עגבניות, במבה…" placeholderTextColor={t.ink2}
-            style={[{ flex: 1, color: t.ink, textAlign: "right", fontSize: 15, height: 44 }, Platform.OS === "web" && ({ outlineStyle: "none" } as object)]} returnKeyType="search" accessibilityLabel="חיפוש מוצר" />
-          {q ? <Pressable onPress={() => setQ("")} accessibilityRole="button" accessibilityLabel="ניקוי החיפוש" hitSlop={10}><Ionicons name="close-circle" size={20} color={t.ink2} /></Pressable> : null}
-        </View>
+        <SearchButton onPress={() => browse(undefined, true)} />
         <IconBtn icon="list" label="הדבקת רשימת קניות" onPress={() => router.push("/list")} />
         {canScan() ? <IconBtn icon="barcode-outline" label="סריקת ברקוד" onPress={() => router.push("/scan")} /> : null}
       </View>
 
-      <FlatList
-        ref={listRef}
-        key={`${view}-${cols}`}
-        data={list}
-        numColumns={cols}
-        keyExtractor={([p]) => p.code}
-        initialNumToRender={view === "list" ? 10 : 12}
-        windowSize={7}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        onScroll={e => { const y = e.nativeEvent.contentOffset.y; if ((y > 900) !== showTop) setShowTop(y > 900); }}
-        scrollEventThrottle={100}
-        contentContainerStyle={{ padding: 12, gap: 10, paddingBottom: 40 }}
-        columnWrapperStyle={cols > 1 ? { gap: 10 } : undefined}
-        ListHeaderComponent={
-          <View style={{ gap: 10, marginBottom: 2 }}>
-            <Chips items={[{ id: "all", name: "הכל" }, ...catalog.categories]} value={cat} onChange={setCat} />
-            <StoreChips catalog={catalog} active={active} onToggle={toggleStore} />
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <T style={{ color: t.ink2, fontSize: 13 }}><Num style={{ fontWeight: "700", color: t.ink, fontSize: 13 }}>{list.length.toLocaleString("he-IL")}</Num> מוצרים</T>
-              <View style={{ flexDirection: "row", gap: 4, alignItems: "center", flexShrink: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                {SORTS.map(s => (
-                  <Pressable key={s.id} onPress={() => setSort(s.id)} accessibilityRole="button" accessibilityState={{ selected: sort === s.id }} hitSlop={{ top: 8, bottom: 8 }}
-                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: sort === s.id ? t.ink : "transparent" }}>
-                    <Text style={{ color: sort === s.id ? t.bg : t.ink2, fontSize: 13, fontWeight: "600" }}>{s.label}</Text>
-                  </Pressable>
-                ))}
-                <Pressable onPress={() => chooseView(view === "list" ? "grid" : "list")} accessibilityRole="button" accessibilityLabel={view === "list" ? "תצוגת כרטיסים" : "תצוגת רשימה"} hitSlop={6}
-                  style={{ width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: t.surface2 }}>
-                  <Ionicons name={view === "list" ? "grid-outline" : "list-outline"} size={18} color={t.ink} />
+      <ScrollView contentContainerStyle={{ padding: 12, gap: 18, paddingBottom: 40 }}>
+        {top.length >= 2 ? (
+          <Card>
+            <SectionHead title="איפה הכי זול סביבכם" sub={`מחירי מדף של עד ${basis.toLocaleString("he-IL")} מוצרים שנמכרים בכמה סניפים, מול המחיר המקובל באזור`}
+              action="כל הדירוג" onAction={() => router.push("/insights")} />
+            {top.map((r, k) => {
+              const s = catalog.stores[r.i];
+              const d = storeKm(catalog, r.i);
+              return (
+                <Pressable key={s.id} onPress={() => router.push("/insights")} accessibilityRole="button"
+                  accessibilityLabel={`מקום ${k + 1}: ${s.chain}, ${s.branch}. ${Math.abs(r.pct).toFixed(1)} אחוז ${r.pct <= 0 ? "מתחת" : "מעל"} למחיר המקובל`}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: k === 0 ? t.tag : t.surface2, alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ fontWeight: "800", color: k === 0 ? t.tagInk : t.ink, fontVariant: ["tabular-nums"] }}>{k + 1}</Text>
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                      <T numberOfLines={1} style={{ fontWeight: "700", fontSize: 15.5, flexShrink: 1 }}>{s.chain}</T>
+                      <Pct pct={r.pct} />
+                    </View>
+                    <PctBar pct={r.pct} max={span} />
+                    <T numberOfLines={1} style={{ color: t.ink2, fontSize: 12.5 }}>{s.branch}{d != null ? ` · ${d.toFixed(1)} ק״מ` : ""}</T>
+                  </View>
                 </Pressable>
-              </View>
-            </View>
+              );
+            })}
+            {worst ? (
+              <T style={{ color: t.ink2, fontSize: 12.5 }}>
+                היקר ביותר: <Text style={{ fontWeight: "700", color: t.ink }}>{catalog.stores[worst.i].chain}</Text>, <Pct pct={worst.pct} size={12.5} />. הפער בין הזול ליקר: <Num style={{ fontWeight: "700", fontSize: 12.5 }}>{(worst.pct - index[0].pct).toFixed(1)}%</Num>.
+              </T>
+            ) : null}
+          </Card>
+        ) : null}
+
+        <View style={{ gap: 10 }}>
+          <SectionHead title="קטגוריות" action="כל המוצרים" onAction={() => browse("all")} />
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            {catalog.categories.map(c => (
+              <Pressable key={c.id} onPress={() => browse(c.id)} accessibilityRole="button" accessibilityLabel={c.name}
+                style={({ pressed }) => ({ width: "23%", flexGrow: 1, minWidth: 76, alignItems: "center", gap: 5, backgroundColor: t.surface, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 2, opacity: pressed ? 0.85 : 1 })}>
+                <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: (CAT_TINT[c.id] ?? CAT_TINT.other) + "55", alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name={CAT_ICON[c.id] ?? CAT_ICON.other} size={20} color={t.ink} />
+                </View>
+                <Text numberOfLines={1} style={{ color: t.ink, fontSize: 12, fontWeight: "600", textAlign: "center" }}>{SHORT[c.id] ?? c.name}</Text>
+              </Pressable>
+            ))}
           </View>
-        }
-        ListEmptyComponent={<T style={{ color: t.ink2, textAlign: "center", padding: 30 }}>לא מצאנו מוצר כזה. נסו מילה קצרה יותר, למשל ״קוטג״.</T>}
-        renderItem={({ item: [p, pi] }) => {
-          const deal = bestDeal(p, active, deals);
-          const props = { p, pi, deal, dealChain: deal ? catalog.stores[deal.i].chain : "", chain: catalog.stores[pi.at]?.chain ?? "", qty: cart[p.code] ?? 0, setQty, open: () => router.push(`/product/${encodeURIComponent(p.code)}`) };
-          return <View style={{ flex: 1 / cols }}>{view === "list" ? <Row {...props} /> : <Card {...props} />}</View>;
-        }}
-      />
+        </View>
 
-      {showTop ? (
-        <Pressable onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })} accessibilityRole="button" accessibilityLabel="חזרה לראש הרשימה"
-          style={{ position: "absolute", bottom: 16, left: 16, width: 46, height: 46, borderRadius: 23, backgroundColor: t.ink, alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 }}>
-          <Ionicons name="arrow-up" size={22} color={t.bg} />
-        </Pressable>
-      ) : null}
+        {mine.length ? (
+          <View style={{ gap: 10 }}>
+            <SectionHead title="הרגילים שלי" sub="מוצרים שהוספתם לסל בעבר. הקשה על + מוסיפה אחד." />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+              {mine.map(p => {
+                const pi = priceInfo(p, active);
+                return <MiniProduct key={p.code} p={p} price={pi.lo!} note={catalog.stores[pi.at]?.chain} qty={cart[p.code] ?? 0} onOpen={() => open(p.code)} onAdd={() => setQty(p.code, (cart[p.code] ?? 0) + (p.weighted ? 0.5 : 1))} />;
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {best.length ? (
+          <View style={{ gap: 10 }}>
+            <SectionHead title="מבצעים ששווה לדעת עליהם" sub="רק מבצעים שזולים גם מהמחיר הרגיל בכל סניף אחר סביבכם" action="כל המבצעים" onAction={() => router.navigate("/deals")} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+              {best.map(d => (
+                <DealCard key={d.id} d={d} catalogStores={catalog.stores} now={feed!.now} qty={cart[d.code] ?? 0} width={176}
+                  add={(x: DealItem) => addMany({ [x.code]: cartQty(x) })} setQty={setQty} open={open} />
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {moved && (moved.down.length || moved.up.length) ? (
+          <Card>
+            <SectionHead title="מחירים שזזו" sub={moved.since ? `מאז ${fmtDate(moved.since)}, בסניפים שסביבכם` : undefined} action="לכל השינויים" onAction={() => router.push("/changes")} />
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Stat icon="trending-down" color={t.good} n={moved.down.length} label="הוזלו" />
+              <Stat icon="trending-up" color={t.warn} n={moved.up.length} label="התייקרו" />
+            </View>
+            {moved.down.slice(0, 3).map(v => (
+              <Pressable key={`${v.p.code}-${v.i}`} onPress={() => open(v.p.code)} accessibilityRole="button" style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <ProductImage p={v.p} size={40} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <T numberOfLines={1} style={{ fontWeight: "600", fontSize: 14 }}>{v.p.name}</T>
+                  <T numberOfLines={1} style={{ color: t.ink2, fontSize: 12.5 }}>{catalog.stores[v.i].chain} · {money(v.from)} ← {money(v.to)} ₪</T>
+                </View>
+                <Pct pct={v.pct} />
+              </Pressable>
+            ))}
+          </Card>
+        ) : dated > 0 ? (
+          <Card style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <Ionicons name="pulse-outline" size={24} color={t.brand} />
+            <T style={{ flex: 1, fontSize: 13.5, lineHeight: 19 }}>
+              הרשתות עדכנו <Num style={{ fontWeight: "800", fontSize: 13.5 }}>{dated.toLocaleString("he-IL")}</Num> מחירים בסניפים שלכם בשבוע האחרון. אחרי עדכון המחירים הבא נראה כאן מה הוזל ומה התייקר.
+            </T>
+          </Card>
+        ) : null}
+
+        {gaps.length ? (
+          <Card>
+            <SectionHead title="כאן הכי משתלם להשוות" sub="אותו מוצר, פער המחירים הגדול ביותר בין הסניפים שסביבכם" action="עוד" onAction={() => router.push("/insights")} />
+            {gaps.map(g => (
+              <Pressable key={g.p.code} onPress={() => open(g.p.code)} accessibilityRole="button" accessibilityLabel={`${g.p.name}: מ־${money(g.lo)} עד ${money(g.hi)} ₪`} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <ProductImage p={g.p} size={44} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <T numberOfLines={1} style={{ fontWeight: "600", fontSize: 14 }}>{g.p.name}</T>
+                  <T numberOfLines={1} style={{ color: t.ink2, fontSize: 12.5 }}>הכי זול ב{catalog.stores[g.loAt].chain}{g.p.weighted ? " · לק״ג" : ""}</T>
+                </View>
+                <View style={{ alignItems: "flex-start" }}>
+                  <Num style={{ fontWeight: "800", fontSize: 14.5 }}>{money(g.lo)}–{money(g.hi)} ₪</Num>
+                  <T style={{ color: t.warn, fontSize: 12, fontWeight: "700" }}>פער {g.pct}%</T>
+                </View>
+              </Pressable>
+            ))}
+          </Card>
+        ) : null}
+
+        <T style={{ color: t.ink2, fontSize: 12, lineHeight: 17, textAlign: "center" }}>
+          הנתונים מקובצי המחירים הרשמיים שהרשתות מפרסמות לפי חוק המזון, {fmtDate(catalog.priceDate)}.
+        </T>
+      </ScrollView>
     </View>
   );
 }
 
-type ItemProps = { p: Product; pi: PriceInfo; deal: BestDeal | null; dealChain: string; chain: string; qty: number; setQty: (c: string, q: number) => void; open: () => void };
-
-const spread = (pi: PriceInfo) => (pi.hi! > pi.lo! ? Math.round((pi.hi! / pi.lo! - 1) * 100) : 0);
-
-/** One compact line per product: photo, name, where it's cheapest, price and add. */
-const Row = memo(function Row({ p, pi, deal, chain, qty, setQty, open }: ItemProps) {
+function Stat({ icon, color, n, label }: { icon: React.ComponentProps<typeof Ionicons>["name"]; color: string; n: number; label: string }) {
   const t = useTheme();
-  const unit = unitPrice(sizeOf(p), pi.lo!);
   return (
-    <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={`${p.name}, ${money(pi.lo!)} ₪ ב${chain}. פתיחת המחירים בכל הסניפים`}
-      style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: t.surface, borderRadius: 14, padding: 10, opacity: pressed ? 0.92 : 1 })}>
-      <ProductImage p={p} size={64} />
-      <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-        <T numberOfLines={2} style={{ fontWeight: "600", fontSize: 14.5, lineHeight: 19 }}>{p.name}</T>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-          <T numberOfLines={1} style={{ fontSize: 12.5, color: t.ink2, flexShrink: 1 }}>{chain} · {pi.n} סניפים</T>
-          <FollowButton code={p.code} name={p.name} compact />
-        </View>
-        {unit ? <T numberOfLines={1} style={{ fontSize: 12, color: t.ink2 }}>{unitText(unit)}</T> : null}
-        {deal ? <DealBadge text={dealText(deal.promo)} club={deal.promo.club} /> : null}
-      </View>
-      <View style={{ alignItems: "flex-end", gap: 6 }}>
-        <PriceTag agorot={pi.lo!} />
-        {qty ? <Stepper p={p} qty={qty} onChange={q => setQty(p.code, q)} compact width={104} /> : <AddBtn onPress={() => setQty(p.code, 1)} />}
-      </View>
-    </Pressable>
-  );
-});
-
-const Card = memo(function Card({ p, pi, deal, dealChain, chain, qty, setQty, open }: ItemProps) {
-  const t = useTheme();
-  const gap = spread(pi);
-  const unit = unitPrice(sizeOf(p), pi.lo!);
-  return (
-    <View style={{ backgroundColor: t.surface, borderRadius: 14, padding: 10, gap: 8, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}>
-      <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={`מחירים בכל הסניפים: ${p.name}`} style={{ gap: 8 }}>
-        <ProductImage p={p} size="fill" />
-        <T numberOfLines={2} style={{ fontWeight: "600", fontSize: 14.5, minHeight: 38, lineHeight: 19 }}>{p.name}</T>
-      </Pressable>
-      <View style={{ position: "absolute", top: 14, right: 14 }}><FollowButton code={p.code} name={p.name} compact /></View>
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", gap: 6 }}>
-        <PriceTag agorot={pi.lo!} />
-        <View style={{ flexShrink: 1, alignItems: "flex-start" }}>
-          <Text style={{ fontSize: 11.5, color: t.ink2 }}>הכי זול ב</Text>
-          <Text numberOfLines={1} style={{ fontSize: 12.5, fontWeight: "700", color: t.ink }}>{chain}</Text>
-        </View>
-      </View>
-      {deal ? (
-        <View style={{ gap: 2 }}>
-          <DealBadge text={dealText(deal.promo)} club={deal.promo.club} />
-          <T numberOfLines={1} style={{ fontSize: 11.5, color: t.ink2 }}>{deal.promo.desc} · {dealChain}</T>
-        </View>
-      ) : null}
-      {unit ? <T style={{ fontSize: 12, color: t.ink2 }}>{unitText(unit)}</T> : null}
-      <T numberOfLines={1} style={{ fontSize: 12, color: t.ink2 }}>{pi.n} סניפים{gap >= 15 ? ` · פער ${gap}%` : ""}</T>
-      {qty ? <Stepper p={p} qty={qty} onChange={q => setQty(p.code, q)} /> : <Button title="הוספה לסל" onPress={() => setQty(p.code, 1)} style={{ height: 40 }} />}
+    <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: color + "18", borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12 }}>
+      <Ionicons name={icon} size={22} color={color} />
+      <Num style={{ fontWeight: "800", fontSize: 20, color: t.ink }}>{n.toLocaleString("he-IL")}</Num>
+      <T style={{ fontSize: 13.5, color: t.ink2 }}>{label}</T>
     </View>
-  );
-});
-
-function Chips({ items, value, onChange }: { items: { id: string; name: string }[]; value: string; onChange: (id: string) => void }) {
-  const t = useTheme();
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-      {items.map(c => (
-        <Pressable key={c.id} onPress={() => onChange(c.id)} accessibilityRole="button" accessibilityState={{ selected: value === c.id }}
-          style={{ paddingHorizontal: 14, minHeight: 40, justifyContent: "center", borderRadius: 12, backgroundColor: value === c.id ? t.brand : t.surface2 }}>
-          <Text style={{ fontWeight: "600", color: value === c.id ? t.brandInk : t.ink }}>{c.name}</Text>
-        </Pressable>
-      ))}
-    </ScrollView>
-  );
-}
-
-function StoreChips({ catalog, active, onToggle }: { catalog: Catalog; active: number[]; onToggle: (id: string) => void }) {
-  const t = useTheme();
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-      {catalog.stores.map((s, i) => {
-        const on = active.includes(i);
-        const d = storeKm(catalog, i);
-        return (
-          <Pressable key={s.id} onPress={() => onToggle(s.id)} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={`${s.chain} ${s.branch}`}
-            style={{ flexDirection: "row", gap: 4, alignItems: "baseline", paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, borderWidth: 1,
-              borderColor: on ? t.ink : t.line, backgroundColor: on ? t.ink : t.surface, opacity: on ? 1 : 0.6 }}>
-            <Text style={{ color: on ? t.bg : t.ink, fontWeight: "700", fontSize: 13, textDecorationLine: on ? "none" : "line-through" }}>{s.chain}</Text>
-            <Text style={{ color: on ? t.bg : t.ink2, fontSize: 11.5 }}>{s.branch}{d != null ? ` · ${d.toFixed(1)} ק״מ${s.approx ? "~" : ""}` : ""}</Text>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
   );
 }

@@ -4,7 +4,8 @@ import { FlatList, Pressable, ScrollView, Text, View, useWindowDimensions } from
 import { DealCard } from "../../components/DealCard";
 import { Button, T, useTheme } from "../../components/ui";
 import { chainKey } from "../../lib/compare";
-import { bestOfWeek, buildDeals, cartQty, defaultFilters, endingSoon, endingSoonCount, filterDeals, mineOf, sortDeals, type Basis, type ClubMode, type DealItem, type DealSort } from "../../lib/dealsFeed";
+import { bestOfWeek, cartQty, defaultFilters, endingSoon, endingSoonCount, filterDeals, mineOf, sortDeals, type Basis, type ClubMode, type DealItem, type DealSort } from "../../lib/dealsFeed";
+import { dealFeed } from "../../lib/feed";
 import { useData } from "../../lib/store";
 
 const SORTS: { id: DealSort; label: string }[] = [
@@ -22,16 +23,17 @@ export default function DealsScreen() {
   const [mineOnly, setMineOnly] = useState(false);
   const [onlyReal, setOnlyReal] = useState(true);
   const [sort, setSort] = useState<DealSort>("pct");
-  const [basis, setBasis] = useState<Basis>("cheapest");
+  const basis: Basis = "cheapest"; // savings are always measured against the cheapest regular price nearby
   const clubTouched = useRef(false);
   const cols = Math.max(2, Math.min(6, Math.floor((width - 24) / 190)));
 
-  const now = useMemo(() => Date.now(), [catalog]); // eslint-disable-line react-hooks/exhaustive-deps
+  const feed = useMemo(() => (catalog?.promos ? dealFeed(catalog, products, active, club) : null), [catalog, products, active, club]);
+  const now = feed?.now ?? 0;
+  const all = feed?.items ?? [];
   const hasClub = Object.values(club).some(Boolean);
   // follow the user's club settings until they choose by hand
   useEffect(() => { if (ready && !clubTouched.current) setClubMode(hasClub ? "club" : "none"); }, [ready, hasClub]);
 
-  const all = useMemo(() => (catalog ? buildDeals(catalog, products, { active, club, now }) : []), [catalog, products, active, club, now]);
   const mine = useMemo(() => (mineOnly ? mineOf(cart, products) : null), [mineOnly, cart, products]);
   const filters = useMemo(() => ({ ...defaultFilters, cat, chain, club: clubMode, onlyReal, mine }), [cat, chain, clubMode, onlyReal, mine]);
   const f = useMemo(() => filterDeals(all, filters), [all, filters]);
@@ -75,7 +77,7 @@ export default function DealsScreen() {
       </View>
       <T style={{ color: t.ink2, fontSize: 12 }}>{sub}</T>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 4 }}>
-        {items.map(d => <View key={d.id}>{card(d, 200)}</View>)}
+        {items.map(d => <View key={d.id}>{card(d, 176)}</View>)}
       </ScrollView>
     </View>
   ) : null;
@@ -94,42 +96,32 @@ export default function DealsScreen() {
         <View style={{ gap: 12, marginBottom: 2 }}>
           <View style={{ gap: 2 }}>
             <T style={{ fontSize: 22, fontWeight: "800" }}>מבצעים</T>
-            <T style={{ color: t.ink2, fontSize: 13 }}>{all.length.toLocaleString("he-IL")} מבצעים פעילים ב־{active.length} סניפים. האחוזים נמדדים גם מול מחיר המדף בסניף וגם מול המחיר הזול ביותר בכל הסניפים שבחרתם.</T>
+            <T style={{ color: t.ink2, fontSize: 13, lineHeight: 19 }}>{all.length.toLocaleString("he-IL")} מבצעים פעילים ב־{active.length} סניפים. האחוז על כל כרטיס נמדד מול המחיר הרגיל הזול ביותר סביבכם, לא מול מחיר המדף של אותו סניף.</T>
           </View>
-          {sections ? row("הדילים הכי טובים השבוע", "הנחה אמיתית מול המחיר הזול ביותר על המדף, אחד לכל מוצר", best, () => { setSort("pct"); setBasis("cheapest"); }) : null}
+          {sections ? row("הכי שווים השבוע", "זולים גם מהמחיר הרגיל בכל סניף אחר, אחד לכל מוצר", best, () => setSort("pct")) : null}
           {sections ? row("נגמרים בקרוב", `מסתיימים ב־48 השעות הקרובות (${soonTotal.toLocaleString("he-IL")} מבצעים)`, soon, () => setSort("ending")) : null}
 
           <Chips items={[{ id: "all", name: "כל הקטגוריות" }, ...catalog.categories]} value={cat} onChange={setCat} />
           <Chips items={[{ id: "all", name: "כל הרשתות" }, ...chains]} value={chain} onChange={setChain} />
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            <Toggle on={clubMode === "none"} label="בלי מועדון" onPress={() => { clubTouched.current = true; setClubMode("none"); }} />
-            <Toggle on={clubMode === "club"} label="גם מבצעי מועדון" onPress={() => { clubTouched.current = true; setClubMode("club"); }} />
-            <Toggle on={mineOnly} check label="רק על מה שבסל ובקטגוריות שלי" onPress={() => setMineOnly(v => !v)} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: "center" }}>
+            <Toggle on={clubMode === "club"} check label="גם מבצעי מועדון" onPress={() => { clubTouched.current = true; setClubMode(m => (m === "club" ? "none" : "club")); }} />
+            <Toggle on={mineOnly} check label="רק מה שקשור לסל שלי" onPress={() => setMineOnly(v => !v)} />
             <Toggle on={onlyReal} check label="רק הנחה אמיתית" onPress={() => setOnlyReal(v => !v)} />
-          </View>
+          </ScrollView>
           {clubMode === "club" && !hasClub ? <T style={{ color: t.ink2, fontSize: 12 }}>סמנו ״יש לי כרטיס מועדון״ בסל כדי לראות מבצעי מועדון.</T> : null}
-          <View style={{ gap: 6 }}>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-              {SORTS.map(s => (
-                <Pressable key={s.id} onPress={() => setSort(s.id)} accessibilityState={{ selected: sort === s.id }}
-                  style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, backgroundColor: sort === s.id ? t.ink : "transparent" }}>
-                  <Text style={{ color: sort === s.id ? t.bg : t.ink2, fontSize: 13, fontWeight: "600" }}>{s.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-            {sort === "pct" || sort === "save" ? (
-              <View style={{ flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                <T style={{ color: t.ink2, fontSize: 12 }}>החיסכון מול:</T>
-                <Toggle small on={basis === "cheapest"} label="הזול ביותר בכל הסניפים" onPress={() => setBasis("cheapest")} />
-                <Toggle small on={basis === "shelf"} label="המדף באותו סניף" onPress={() => setBasis("shelf")} />
-              </View>
-            ) : null}
-            {sort === "unit" ? <T style={{ color: t.ink2, fontSize: 12 }}>ממוין לפי סוג: מחיר ל־100 גרם, אחר כך לליטר, אחר כך ליחידה. מוצרים בלי גודל ידוע בסוף.</T> : null}
-          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: "center" }}>
+            <Text style={{ color: t.ink2, fontSize: 13 }}>מיון:</Text>
+            {SORTS.map(s => (
+              <Pressable key={s.id} onPress={() => setSort(s.id)} accessibilityRole="button" accessibilityState={{ selected: sort === s.id }} accessibilityLabel={`מיון: ${s.label}`}
+                style={{ paddingHorizontal: 12, minHeight: 36, justifyContent: "center", borderRadius: 999, backgroundColor: sort === s.id ? t.ink : t.surface2 }}>
+                <Text style={{ color: sort === s.id ? t.bg : t.ink, fontSize: 13, fontWeight: "600" }}>{s.label}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          {sort === "unit" ? <T style={{ color: t.ink2, fontSize: 12 }}>לפי סוג: מחיר ל־100 גרם, אחר כך לליטר, אחר כך ליחידה.</T> : null}
           <T style={{ color: t.ink2, fontSize: 13 }}>
             <Text style={{ fontWeight: "700", color: t.ink }}>{list.length.toLocaleString("he-IL")}</Text> מבצעים
-            {f.hiddenNotReal ? ` · ${f.hiddenNotReal.toLocaleString("he-IL")} מוסתרים כי המחיר לא נמוך מהמדף בסניף אחר` : ""}
-            {f.hiddenClub ? ` · ${f.hiddenClub.toLocaleString("he-IL")} מבצעי מועדון מוסתרים` : ""}
+            {f.hiddenNotReal ? ` · ${f.hiddenNotReal.toLocaleString("he-IL")} הוסתרו: לא זולים מהמחיר הרגיל בסניף אחר` : ""}
           </T>
         </View>
       }
