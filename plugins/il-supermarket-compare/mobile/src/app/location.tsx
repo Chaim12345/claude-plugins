@@ -71,7 +71,8 @@ export default function LocationSheet() {
   }
 
   return (
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 18, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24, gap: 12 }}>
+    <View style={{ flex: 1 }}>
+    <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 18, paddingTop: insets.top + 12, paddingBottom: 16, gap: 12 }}>
       <T style={{ fontSize: 22, fontWeight: "800" }}>איפה אתם קונים?</T>
       <T style={{ color: t.ink2 }}>נשווה את כל הסניפים של רשתות הדיסקאונט בטווח, ואת הסניף הקרוב של כל רשת אחרת.</T>
       <View style={{ flexDirection: "row", gap: 8 }}>
@@ -101,11 +102,15 @@ export default function LocationSheet() {
           ))}
         </View>
       ) : null}
+    </ScrollView>
+    {/* Pinned, so it's reachable however long the list of branches is. */}
+    <View style={{ padding: 14, paddingBottom: insets.bottom + 14, borderTopWidth: 1, borderTopColor: t.line, backgroundColor: t.bg }}>
       <View style={{ flexDirection: "row", gap: 10 }}>
         <Button title="השוואה כאן" style={{ flex: 1 }} disabled={!cand || !near?.length}
           onPress={() => { if (cand) { choosePlace({ ...cand, radius }); router.back(); } }} />
         <Button kind="ghost" title="ביטול" style={{ flex: 1 }} onPress={() => router.back()} />
       </View>
-    </ScrollView>
+    </View>
+    </View>
   );
 }
