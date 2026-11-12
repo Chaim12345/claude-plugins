@@ -25,8 +25,10 @@ type Catalog struct {
 	Images   []string `json:"imageSources"` // URL templates tried in order; {code} is replaced
 	// Promos[i] are store i's promotions (see Promo), referring to packaged product codes. Older
 	// catalogs and consumers that ignore the field keep working with shelf prices.
-	Promos     [][]Promo    `json:"promos"`
-	PromoStats []PromoStats `json:"promoStats,omitempty"`
+	Promos [][]Promo `json:"promos"`
+	// PromoNotes[i] are store i's promotions with conditions that aren't priced (see PromoNote).
+	PromoNotes [][]PromoNote `json:"promoNotes,omitempty"`
+	PromoStats []PromoStats  `json:"promoStats,omitempty"`
 }
 
 type Store struct {
@@ -47,7 +49,7 @@ type Store struct {
 
 // CatalogVersion is written to Catalog.Version. A stored catalog with an older version is rebuilt
 // from the files already downloaded, instead of being served as "unchanged".
-const CatalogVersion = 2
+const CatalogVersion = 3
 
 type Area struct {
 	Name string  `json:"name"`

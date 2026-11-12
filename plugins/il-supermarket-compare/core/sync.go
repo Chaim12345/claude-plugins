@@ -178,6 +178,7 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 		Images:      ImageSources,
 	}
 	cat.Promos, cat.PromoStats = BuildPromos(stores, products)
+	cat.PromoNotes = BuildNotes(stores, products)
 	if cat.Skipped == nil {
 		cat.Skipped = []string{}
 	}

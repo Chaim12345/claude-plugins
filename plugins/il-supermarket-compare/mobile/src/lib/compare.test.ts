@@ -46,3 +46,17 @@ test("fmtStamp", () => {
   assert.equal(fmtStamp("202611120710"), "12.11 07:10");
   assert.equal(fmtStamp(""), "");
 });
+
+test("promotion notes: per store and product, ended ones hidden, none for old catalogs", async () => {
+  const { notesFor } = await import("./compare.ts");
+  const base = { priceDate: "", generatedAt: "", skipped: [], areas: [], categories: [], products: [],
+    stores: [{ id: "a:1", chain: "a", branch: "", address: "", lat: null, lon: null, approx: false }, { id: "b:1", chain: "b", branch: "", address: "", lat: null, lon: null, approx: false }] };
+  const now = new Date(2026, 10, 12, 12).getTime();
+  const c = { ...base, promoNotes: [[
+    { id: "1", codes: ["111", "222"], desc: "ב־5 מעל 75", why: "basket_min" as const, end: "202611302359" },
+    { id: "2", codes: ["111"], desc: "נגמר", why: "gift" as const, end: "202611010000" },
+  ], []] };
+  assert.deepEqual(notesFor(c, 0, "111", now).map(n => n.id), ["1"]);
+  assert.deepEqual(notesFor(c, 1, "111", now), []);
+  assert.deepEqual(notesFor(base, 0, "111", now), []);
+});

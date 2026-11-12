@@ -19,6 +19,8 @@ export type Store = {
 // or the percent off (percent). end is YYYYMMDDhhmm local time; missing = open-ended.
 export type PromoKind = "price" | "bundle" | "percent";
 export type Promo = { id: string; codes: string[]; minQty: number; kind: PromoKind; value: number; club: boolean; desc: string; max?: number; end?: string };
+/** A promotion with conditions the app doesn't price (core/promo.go PromoNote): shown, never counted in totals. */
+export type PromoNote = { id: string; codes: string[]; desc: string; why: "basket_min" | "gift" | "multi_group"; club?: boolean; end?: string };
 export type PromoStats = { parsed: number; modeled: number; applied: number; skipped: Record<string, number> };
 
 export type Area = { name: string; lat: number; lon: number };
@@ -46,6 +48,7 @@ export type Catalog = {
   imageSources?: string[];
   promos?: Promo[][]; // per store index; absent in catalogs from before promotions
   promoStats?: PromoStats[];
+  promoNotes?: PromoNote[][]; // per store index: deals with conditions (minimum basket, gift, mix-and-match)
 };
 
 export type Product = {

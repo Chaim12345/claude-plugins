@@ -75,6 +75,70 @@ type PromoFile struct {
 	Total   int            // promotions in the file
 	Promos  []Promo        // modelled promotions (a promotion with differing item terms yields several)
 	Skipped map[string]int // promotions not modelled, by reason
+	Notes   []PromoNote    // promotions with conditions the basket maths can't price, kept to be shown
+}
+
+// PromoNote is a promotion the app shows but doesn't price: it depends on the whole basket
+// ("ב־25.90 מעל 75 ₪"), rewards a different product, or mixes products from separate groups.
+type PromoNote struct {
+	ID    string   `json:"id"`
+	Codes []string `json:"codes"`
+	Desc  string   `json:"desc"`
+	Why   string   `json:"why"` // SkipBasket, SkipGift or SkipMultiGroup
+	Club  bool     `json:"club,omitempty"`
+	Start string   `json:"-"`
+	End   string   `json:"end,omitempty"`
+}
+
+// noteReasons are the skip reasons worth telling people about. Coupons are left out: they need a
+// coupon the shopper has to receive first.
+var noteReasons = map[string]bool{SkipBasket: true, SkipGift: true, SkipMultiGroup: true}
+
+// promoNote collects what a note needs from a promotion: every item code in any group.
+func promoNote(n *node, why string) *PromoNote {
+	desc := CleanPromoDesc(n.val("promotiondescription"))
+	if desc == "" {
+		return nil
+	}
+	var codes []string
+	seen := map[string]bool{}
+	add := func(pi *node) {
+		if pi == nil {
+			return
+		}
+		for _, it := range pi.kids {
+			if c := strings.TrimLeft(it.val("itemcode"), "0"); c != "" && !seen[c] {
+				seen[c] = true
+				codes = append(codes, c)
+			}
+		}
+	}
+	if g := n.child("groups"); g != nil {
+		for _, grp := range g.children("group") {
+			add(grp.child("promotionitems"))
+		}
+	} else {
+		add(n.child("promotionitems"))
+	}
+	if len(codes) == 0 {
+		return nil
+	}
+	var clubs []string
+	if v := n.val("clubid"); v != "" {
+		clubs = append(clubs, v)
+	}
+	if c := n.child("clubs"); c != nil {
+		for _, k := range c.children("clubid") {
+			clubs = append(clubs, strings.TrimSpace(k.text.String()))
+		}
+	}
+	id := n.val("promotionid")
+	if id == "" {
+		id = "x" + desc
+	}
+	return &PromoNote{ID: id, Codes: codes, Desc: desc, Why: why, Club: !isEveryone(clubs),
+		Start: timestamp(n.val("promotionstartdatetime", "promotionstartdate"), n.val("promotionstarthour")),
+		End:   timestamp(n.val("promotionenddatetime", "promotionenddate"), n.val("promotionendhour"))}
 }
 
 // PromoStats is the per-store coverage that ends up in the catalog.
@@ -186,6 +250,11 @@ func ParsePromoFile(r io.Reader) (*PromoFile, error) {
 		ps, why := normalizePromotion(n)
 		if len(ps) == 0 {
 			pf.Skipped[why]++
+			if noteReasons[why] {
+				if note := promoNote(n, why); note != nil {
+					pf.Notes = append(pf.Notes, *note)
+				}
+			}
 			return
 		}
 		pf.Promos = append(pf.Promos, ps...)
@@ -461,6 +530,43 @@ func (pr Promo) priceAfter(p float64, q int) float64 {
 // expired at the price file's time, in effect, and cheaper than the shelf price for at least one
 // catalog product. Each store's codes are cut down to catalog products sold there. The returned
 // stats include the reasons promotions were dropped.
+// BuildNotes keeps, for each store, the promotion notes that are in effect and name catalog
+// products sold there (codes cut down to those).
+func BuildNotes(stores []StoreData, products [][]any) [][]PromoNote {
+	sold := make(map[string][]any, len(products))
+	for _, p := range products {
+		if p[3].(int) == 0 {
+			sold[p[0].(string)] = p[4].([]any)
+		}
+	}
+	out := make([][]PromoNote, len(stores))
+	for i, sd := range stores {
+		out[i] = []PromoNote{}
+		if sd.Promos == nil {
+			continue
+		}
+		now := sd.Store.FileTime
+		for _, n := range sd.Promos.Notes {
+			if now != "" && ((n.End != "" && n.End < now) || (n.Start != "" && n.Start > now)) {
+				continue
+			}
+			var codes []string
+			for _, c := range n.Codes {
+				if prices, ok := sold[c]; ok && prices[i] != nil {
+					codes = append(codes, c)
+				}
+			}
+			if len(codes) == 0 {
+				continue
+			}
+			sort.Strings(codes)
+			n.Codes = codes
+			out[i] = append(out[i], n)
+		}
+	}
+	return out
+}
+
 func BuildPromos(stores []StoreData, products [][]any) ([][]Promo, []PromoStats) {
 	// shelf[code][storeIdx] in agorot
 	shelf := make(map[string][]any, len(products))

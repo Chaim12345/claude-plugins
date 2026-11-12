@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Button, DealBadge, Num, PinnedBar, ProductImage, Stepper, T, useTheme } from "../../components/ui";
 import { ProductShareButton } from "../../components/ShareButtons";
 import { FollowButton, NotifyOffer, Spark, TrendText } from "../../components/WatchBits";
-import { STALE_DAYS, bestDeal, changedDaysAgo, dealText, dealUnit, fmtDate, money, priceInfo, shownPromos, soldDaysAgo, storeKm } from "../../lib/compare";
+import { NOTE_LABEL, STALE_DAYS, bestDeal, changedDaysAgo, dealText, notesFor, dealUnit, fmtDate, money, priceInfo, shownPromos, soldDaysAgo, storeKm } from "../../lib/compare";
 import { series } from "../../lib/history";
 import { useData } from "../../lib/store";
 import { useWatch } from "../../lib/watchctx";
@@ -85,11 +85,21 @@ export default function ProductSheet() {
           const stale = sold >= STALE_DAYS;
           const chg = changedDaysAgo(p, i);
           const promos = p.weighted ? [] : shownPromos(deals, i, p.code);
+          const notes = p.weighted ? [] : notesFor(catalog, i, p.code);
           return (
             <View key={s.id} style={{ flexDirection: "row", justifyContent: "space-between", gap: 10, paddingVertical: 10, borderBottomWidth: k === rows.length - 1 ? 0 : 1, borderBottomColor: t.line, opacity: on ? 1 : 0.5 }}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <T style={{ fontWeight: "700" }}>{s.chain}</T>
                 <T numberOfLines={2} style={{ color: t.ink2, fontSize: 12 }}>{s.branch}{d != null ? ` · ${d.toFixed(1)} ק״מ` : ""}{p.picks?.[i] ? ` · ״${p.picks[i]}״` : ""}</T>
+                {notes.map(n => (
+                  <View key={n.id} style={{ gap: 1, marginTop: 4 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", borderWidth: 1, borderColor: t.bad + "66", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 }}>
+                      <Ionicons name="information-circle-outline" size={13} color={t.bad} />
+                      <Text style={{ color: t.bad, fontWeight: "700", fontSize: 11.5 }}>מבצע {NOTE_LABEL[n.why]}{n.club ? " · מועדון" : ""}</Text>
+                    </View>
+                    <T style={{ color: t.ink2, fontSize: 11.5 }}>{n.desc} · לא נכלל בחישוב הסל</T>
+                  </View>
+                ))}
                 {stale ? (
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 }}>
                     <Ionicons name="alert-circle-outline" size={14} color={t.warn} />

@@ -7,7 +7,7 @@ import { CartShareBar } from "../../components/ShareButtons";
 import { SwapBanner, SwapChip, SwapSheet, useSwapSets } from "../../components/SwapSheet";
 import { TripCard } from "../../components/TripCard";
 import { Button, DealBadge, Num, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
-import { clubChains, dealText, fmtDate, money, priceInfo, storeKm, type Comparison } from "../../lib/compare";
+import { NOTE_LABEL, clubChains, dealText, fmtDate, money, notesFor, priceInfo, storeKm, type Comparison } from "../../lib/compare";
 import type { Catalog } from "../../lib/types";
 import { FollowButton, NotifyOffer } from "../../components/WatchBits";
 import { useData } from "../../lib/store";
@@ -69,6 +69,11 @@ export default function CartScreen() {
                     <T style={{ color: t.bad, fontSize: 12, fontWeight: "700" }}>חוסך {money(b.shelf - b.cost)} ₪ ב{catalog.stores[b.i].chain}</T>
                   </View>
                 ) : null}
+                {(() => {
+                  // a deal with conditions at the branch this item is cheapest at: worth knowing, not counted
+                  const n = b ? notesFor(catalog, b.i, p.code)[0] : undefined;
+                  return n ? <T numberOfLines={2} style={{ color: t.ink2, fontSize: 12 }}><Text style={{ color: t.bad, fontWeight: "700" }}>{NOTE_LABEL[n.why]} ב{catalog.stores[b!.i].chain}:</Text> {n.desc}</T> : null;
+                })()}
                 {swaps.byCode.get(p.code) ? <SwapChip saving={swaps.byCode.get(p.code)!.options[0].save} onPress={() => setSwapFor(p.code)} /> : null}
               </View>
             </View>

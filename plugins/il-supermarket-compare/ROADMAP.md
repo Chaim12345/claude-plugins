@@ -19,6 +19,7 @@ What the app does today, what to build next and why, and what needs help from ou
   - Swaps, and a split-trip verdict with a cost per extra km.
   - Club prices, and items that are "maybe not on the shelf".
   - An in-store checklist per branch, grouped by department.
+- **Deals with conditions:** minimum-basket ("מעל 100"), gift and mix-and-match promotions are shown on the product sheet and the cart, with the chain's own wording, and never counted in totals (227 on the Ramat Gan catalog). Pricing the simple ones ("1+1" on one product) is the next step there.
 - **Product sheet:** every branch, the current best deal, how fresh each price is, the price changes the app saw, and a 30-day history for followed products.
 - **Watching:** a watchlist, the usual basket, local notifications and a daily background refresh.
 - **Also:**
@@ -31,14 +32,13 @@ What the app does today, what to build next and why, and what needs help from ou
 ## Next (highest value first)
 
 1. **Real-device pass.** Camera scanning, notifications, the background task and map pins have only run in a browser and an emulator. One afternoon on a phone in Israel would also exercise the four blocked portals (Victory, Carrefour, Hazi Hinam, Mahsanei HaShuk).
-2. **Basket-level deals ("מעל 75 ₪", gifts, mix-and-match).** These are skipped today: about 500 of 10,600 promotions on the Ramat Gan catalog (79 basket-minimum, 401 multi-group, 21 gift), plus 835 coupons. Show them on the product and the cart as "extra conditions" without pricing them, so people know they exist.
-3. **Price history from the files, not only from syncs.** `PriceUpdateTime` dates each price change. Keeping the last 2-3 PriceFull files per branch (about 1 MB each) would give a "price went up 9% last week" line from day one, instead of after the second sync.
-4. **Smarter "my regulars".** Learn the usual quantity and how often each item is bought, then offer "your weekly basket" in one tap and a reminder when a regular is on a real deal.
-5. **Brand-free comparison for staples.** Milk 3% 1 L, eggs L 12, sugar 1 kg: group them by type, size and fat across brands, so "cheapest milk around me" works whatever the brand. Swaps already have the matching rules; this makes them a search.
-6. **Kashrut and dietary filters.** Only about 1% of names mention מהדרין or בד"ץ, so names aren't enough. This needs the chains' online-shop data or a community list. Until then, mark it "by name only".
-7. **Per-branch opening hours and Shabbat closing.** These aren't in the price files. OSM `opening_hours` covers many branches, and could feed the map and the "go now" advice.
-8. **Accessibility pass.** Font scaling up to 200%, TalkBack labels on every control (most have them), and colour-blind-safe deal badges.
-9. **Web app parity.** The Expo web build is the same app, so deploy it with the Go server (one binary plus the static files) as the "no install" option.
+2. **Price history from the files, not only from syncs.** `PriceUpdateTime` dates each price change. Keeping the last 2-3 PriceFull files per branch (about 1 MB each) would give a "price went up 9% last week" line from day one, instead of after the second sync.
+3. **Smarter "my regulars".** Learn the usual quantity and how often each item is bought, then offer "your weekly basket" in one tap and a reminder when a regular is on a real deal.
+4. **Brand-free comparison for staples.** Milk 3% 1 L, eggs L 12, sugar 1 kg: group them by type, size and fat across brands, so "cheapest milk around me" works whatever the brand. Swaps already have the matching rules; this makes them a search.
+5. **Kashrut and dietary filters.** Only about 1% of names mention מהדרין or בד"ץ, so names aren't enough. This needs the chains' online-shop data or a community list. Until then, mark it "by name only".
+6. **Per-branch opening hours and Shabbat closing.** These aren't in the price files. OSM `opening_hours` covers many branches, and could feed the map and the "go now" advice.
+7. **Accessibility pass.** Font scaling up to 200%, TalkBack labels on every control (most have them), and colour-blind-safe deal badges.
+8. **Web app parity.** The Expo web build is the same app, so deploy it with the Go server (one binary plus the static files) as the "no install" option.
 
 ## Later
 

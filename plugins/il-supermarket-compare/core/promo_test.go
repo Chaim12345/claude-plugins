@@ -67,6 +67,40 @@ func TestPromoRami(t *testing.T) {
 	if len(pf.Promos) == 0 || len(pf.Promos) > pf.Total {
 		t.Errorf("promos = %d", len(pf.Promos))
 	}
+	// The basket-minimum and multi-group ones are kept as notes (shown, not priced); coupons are not.
+	whys := map[string]int{}
+	for _, n := range pf.Notes {
+		whys[n.Why]++
+		if len(n.Codes) == 0 || n.Desc == "" {
+			t.Errorf("empty note %+v", n)
+		}
+		if strings.Contains(n.Desc, "קופון") {
+			t.Errorf("a coupon became a note: %q", n.Desc)
+		}
+	}
+	if whys[SkipBasket] != pf.Skipped[SkipBasket] || whys[SkipMultiGroup] != pf.Skipped[SkipMultiGroup] {
+		t.Errorf("notes by reason %v, skipped %v", whys, pf.Skipped)
+	}
+}
+
+func TestBuildNotes(t *testing.T) {
+	products := [][]any{
+		{"7290000000011", "milk", "dairy", 0, []any{600, nil}, nil, "x", nil},
+		{"f-tomato", "tomato", "produce", 1, []any{500, 500}, []any{"a", "b"}, nil, nil},
+	}
+	pf := &PromoFile{Notes: []PromoNote{
+		{ID: "basket", Codes: []string{"7290000000011", "unknown"}, Desc: "חלב ב־5 מעל 75", Why: SkipBasket, End: "202611302359"},
+		{ID: "ended", Codes: []string{"7290000000011"}, Desc: "x", Why: SkipGift, End: "202611010000"},
+		{ID: "nothing", Codes: []string{"unknown"}, Desc: "y", Why: SkipMultiGroup},
+	}}
+	stores := []StoreData{{Store: Store{FileTime: "202611120300"}, Promos: pf}, {Store: Store{FileTime: "202611120300"}, Promos: pf}}
+	out := BuildNotes(stores, products)
+	if len(out[0]) != 1 || out[0][0].ID != "basket" || len(out[0][0].Codes) != 1 {
+		t.Errorf("store 0: %+v", out[0])
+	}
+	if len(out[1]) != 0 { // milk isn't sold at store 1
+		t.Errorf("store 1: %+v", out[1])
+	}
 }
 
 func TestPromoOsher(t *testing.T) {

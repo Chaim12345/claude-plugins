@@ -1,5 +1,5 @@
 // Pure logic shared by every screen: no React, no native code, so it runs under `node --test`.
-import type { Cart, Catalog, Product, Promo } from "./types";
+import type { Cart, Catalog, Product, Promo, PromoNote } from "./types";
 
 export function norm(s: string): string {
   return s.replace(/["'׳״`]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -143,6 +143,26 @@ export function shownPromos(d: Deals | undefined, i: number, code: string): Prom
 export function livePromos(d: Deals | undefined, i: number, code: string): Promo[] {
   return shownPromos(d, i, code).filter(pr => !pr.club || d!.club[i]);
 }
+
+const noteIndex = new WeakMap<Catalog, Map<string, PromoNote[]>[]>();
+
+/** Deals with conditions at store i for this product that haven't ended (see PromoNote). */
+export function notesFor(c: Catalog, i: number, code: string, now = Date.now()): PromoNote[] {
+  if (!c.promoNotes) return [];
+  let idx = noteIndex.get(c);
+  if (!idx) {
+    idx = c.promoNotes.map(l => {
+      const m = new Map<string, PromoNote[]>();
+      for (const n of l) for (const k of n.codes) { const x = m.get(k); if (x) x.push(n); else m.set(k, [n]); }
+      return m;
+    });
+    noteIndex.set(c, idx);
+  }
+  return (idx[i]?.get(code) ?? []).filter(n => { const e = stampMs(n.end); return e == null || e >= now; });
+}
+
+/** What kind of condition, in a few words. */
+export const NOTE_LABEL: Record<PromoNote["why"], string> = { basket_min: "בקנייה מעל סכום", gift: "מתנה בקנייה", multi_group: "משולב" };
 
 /** Chains (portal keys) that have at least one club promotion in this catalog, with a label to show. */
 export function clubChains(c: Catalog): { key: string; label: string }[] {
