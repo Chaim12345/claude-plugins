@@ -120,7 +120,7 @@ func serve(ctx context.Context, addr, data, web string, defCfg core.Config, dir 
 			http.Error(w, "q is required", 400)
 			return
 		}
-		ll, ok, err := sv.geo.Lookup(r.Context(), q)
+		ll, ok, err := sv.geo.LookupAddress(r.Context(), q)
 		if err != nil {
 			http.Error(w, "geocoding service unavailable", 502)
 			return

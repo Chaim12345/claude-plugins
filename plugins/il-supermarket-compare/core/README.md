@@ -15,7 +15,8 @@ The sync engine behind the סל זול app, written in Go. It downloads the chai
 - **Building it:** `salzol directory` downloads every chain's Stores file, maps city codes to names with the CBS localities list on data.gov.il, and geocodes each branch address with OpenStreetMap Nominatim. Nominatim is called at most once per second, with an identifying User-Agent and a permanent cache. When a street can't be found, the branch is placed at its city centre and marked `approx`.
 - **Rebuilding:** do it monthly or so. The cache means only new branches are looked up.
 - **Choosing stores:** `Directory.Nearby(lat, lon, radius, max)` picks every discount-banner branch in the radius plus the nearest branch of each other banner. A city-centre branch counts only when it's 1.5 km inside the radius.
-- **The user's location:** one Nominatim lookup for a typed address (`/api/geocode` or `mobile.Geocode`), or the device's GPS.
+- **The offline index** (`geoindex.bin.gz`, 1.1 MB, built with `salzol osmindex build` from an OpenStreetMap extract; see `osmindex/README.md`) is tried first for every address. It places 840 of 1,163 branch addresses at street level or better, against 731 for the online services, and agrees with them within 1 km 94% of the time. Lookups take microseconds and need no network. Online services (Nominatim and Photon, 1 request/second each) are used only for what it can't place.
+- **The user's location:** a typed address goes to the offline index, then online (`/api/geocode` or `mobile.Geocode`). On the phone, its built-in geocoder is tried first. GPS needs no lookup.
 
 ## Speed
 
@@ -74,7 +75,8 @@ Progress arrives as JSON events on the listener.
 | `parse.go` | Streaming XML parser. Handles gzip, UTF-8 with or without a BOM, and UTF-16. |
 | `catalog.go` | Matching: barcodes for packaged goods with an outlier filter, name rules for fresh items, keyword categories. |
 | `sync.go` | Orchestration, the download cache (keyed by published file name), and the "unchanged" shortcut. |
-| `geocode.go` | Nominatim client: rate limit, cache, address cleanup, city-centre fallback. |
+| `geocode.go` | Online geocoding pool (Nominatim, Photon): rate limits, cache, city check, city-centre fallback. |
+| `offline.go`, `osmindex/` | The offline address index: building, lookup, and evaluation (`salzol osmindex build|eval`). |
 | `directory.go` | The national store directory, banners, and the nearby-store choice. |
 | `images.go` | Photo lookup by barcode: Rami Levy's CDN, then Open Food Facts. Results are cached for 30 days. |
 

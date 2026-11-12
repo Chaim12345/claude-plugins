@@ -13,6 +13,10 @@ https://github.com/OpenIsraeliSupermarkets/israeli-supermarket-scarpers
 
 That project's license allows **non-commercial use only**, with attribution. Commercial use of this material requires the original author's written permission (contact details are in that repository's `LICENSE.txt`). The rest of this directory is under this repository's license.
 
+## Offline address index
+
+`geoindex.bin.gz` is derived from OpenStreetMap data. © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright. As a derived database it is also available under the ODbL; rebuild it with `salzol osmindex build` (see `osmindex/README.md`).
+
 ## Store coordinates
 
 `directory.json` holds coordinates geocoded with OpenStreetMap Nominatim. The data is © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright

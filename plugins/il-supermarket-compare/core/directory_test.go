@@ -171,3 +171,18 @@ func TestCityCentre(t *testing.T) {
 		t.Errorf("unknown city should not be found")
 	}
 }
+
+func TestOfflineIndexEmbedded(t *testing.T) {
+	if OfflineIndex() == nil {
+		t.Fatal("the compiled-in offline index did not load")
+	}
+	// Herzl 10 in Haifa must land in Haifa (Hadar), not Hadera ~40 km south.
+	ll, ok := offlinePlace("הרצל 10", "חיפה")
+	if !ok || Km(ll[0], ll[1], 32.81, 34.999) > 2 {
+		t.Errorf("הרצל 10, חיפה -> %v %v", ll, ok)
+	}
+	g := &Geocoder{cache: map[string]*[2]float64{}} // no online providers: must answer offline
+	if ll, found, err := g.LookupAddress(context.Background(), "ביאליק 50, רמת גן"); err != nil || !found || Km(ll[0], ll[1], 32.084, 34.814) > 1.5 {
+		t.Errorf("ביאליק 50, רמת גן -> %v %v %v", ll, found, err)
+	}
+}

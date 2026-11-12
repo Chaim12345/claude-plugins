@@ -84,7 +84,7 @@ func ResolveImage(dataDir, code string) string {
 // Geocode looks an address up (cached under dataDir) and returns {"found":bool,"lat":..,"lon":..}.
 func Geocode(dataDir, query string) string {
 	g := core.NewGeocoder(dataDir + "/geocode.json")
-	ll, ok, err := g.Lookup(context.Background(), query)
+	ll, ok, err := g.LookupAddress(context.Background(), query)
 	g.Save()
 	if err != nil {
 		b, _ := json.Marshal(map[string]any{"found": false, "error": err.Error()})

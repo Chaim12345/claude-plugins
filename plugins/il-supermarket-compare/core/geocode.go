@@ -281,6 +281,10 @@ func (g *Geocoder) LocateStore(ctx context.Context, addr, city string) (ll [2]fl
 		return
 	}
 	if addr != "" && !strings.HasPrefix(addr, "http") {
+		// The offline index knows more Israeli streets than the online services and costs nothing.
+		if ll, ok := offlinePlace(addr, city); ok {
+			return ll, true, true
+		}
 		a := cleanAddress(addr, city)
 		tries := []string{addr + ", " + city, a + ", " + city}
 		if street := strings.TrimSpace(numRx.ReplaceAllString(a, "")); street != "" && street != a {
