@@ -32,7 +32,13 @@ appId: il.salzol.app
     text: "הוספה לסל"
     index: 0
 - tapOn: "הסל.*"
+# The headline card at the top of the cart names the cheapest branch for the whole basket.
 - extendedWaitUntil:
-    visible: "איפה לקנות"
+    visible: ".*(הסל שלכם הכי זול ב|הסניף שהכי מתאים לסל שלכם).*"
     timeout: 30000
 - takeScreenshot: cart
+# The ranking of branches is further down.
+- scrollUntilVisible:
+    element: "איפה לקנות"
+    timeout: 20000
+- takeScreenshot: cart-ranking
