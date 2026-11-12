@@ -373,11 +373,13 @@ func branchLabel(s DirStore) string {
 	for _, w := range append(strings.Fields(s.Banner), "שופרסל", "קרפור") {
 		n = strings.Replace(n, w, "", 1)
 	}
-	n = strings.Trim(strings.Join(strings.Fields(n), " "), " -")
+	// Store files separate chain and branch with "|" or "-" ("וולט מרקט | ביאליק"); once the banner is
+	// removed only the separator is left at the edge.
+	n = strings.Trim(strings.Join(strings.Fields(n), " "), " -|·/")
 	if n == "" {
 		return s.City
 	}
-	return n
+	return strings.Join(strings.Fields(strings.ReplaceAll(n, "|", "·")), " ")
 }
 
 // CityCentre estimates a city's centre from the directory's branches there: the mean of its

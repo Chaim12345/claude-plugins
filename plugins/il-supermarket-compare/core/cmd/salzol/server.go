@@ -242,7 +242,21 @@ func serve(ctx context.Context, addr, data, web string, defCfg core.Config, dir 
 	})
 	if web != "" {
 		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { serveIndex(w, filepath.Join(web, "index.html")) })
-		mux.Handle("GET /", http.FileServer(http.Dir(web)))
+		files := http.FileServer(http.Dir(web))
+		// The web app routes in the browser (/cart, /product/123): serve the app for any path that
+		// isn't a real file, so a refresh or a shared link doesn't land on a 404.
+		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			clean := filepath.Join(web, filepath.FromSlash(strings.TrimPrefix(filepath.Clean("/"+r.URL.Path), "/")))
+			if st, err := os.Stat(clean); err == nil && !st.IsDir() {
+				files.ServeHTTP(w, r)
+				return
+			}
+			if strings.HasPrefix(r.URL.Path, "/api/") || strings.Contains(filepath.Base(r.URL.Path), ".") {
+				http.NotFound(w, r) // a missing asset or API route is a real 404
+				return
+			}
+			serveIndex(w, filepath.Join(web, "index.html"))
+		})
 	}
 
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}

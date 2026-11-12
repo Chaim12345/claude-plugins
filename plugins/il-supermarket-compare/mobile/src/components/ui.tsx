@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { Platform, Pressable, StyleSheet, Text, View, useColorScheme, type StyleProp, type TextProps, type TextStyle, type ViewStyle } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { money } from "../lib/compare";
 import { engine } from "../lib/engine";
 import type { Product } from "../lib/types";
@@ -23,6 +24,14 @@ export const useTheme = (): Theme => (useColorScheme() === "dark" ? dark : light
 export const CAT_TINT: Record<string, string> = {
   produce: "#7cc46a", meat: "#d9776a", dairy: "#9ac3e6", bakery: "#d8b27a", drinks: "#7fb8c9", snacks: "#e7a64f",
   pantry: "#c9b98d", frozen: "#a9c6e8", cleaning: "#9fd3c7", care: "#d7a8d0", pets: "#bfa58a", other: "#b8bfb3",
+};
+
+type IconName = ComponentProps<typeof Ionicons>["name"];
+/** What a product tile shows when there's no photo: its department, not two arbitrary letters. */
+export const CAT_ICON: Record<string, IconName> = {
+  produce: "nutrition-outline", meat: "fish-outline", dairy: "water-outline", bakery: "restaurant-outline",
+  drinks: "wine-outline", snacks: "ice-cream-outline", pantry: "basket-outline", frozen: "snow-outline",
+  cleaning: "sparkles-outline", care: "heart-outline", pets: "paw-outline", other: "pricetag-outline",
 };
 
 /** Hebrew text: right-aligned, right-to-left. */
@@ -72,15 +81,15 @@ export function Button({ title, onPress, kind = "primary", disabled, style, icon
   );
 }
 
-export function Stepper({ p, qty, onChange, compact }: { p: Product; qty: number; onChange: (q: number) => void; compact?: boolean }) {
+export function Stepper({ p, qty, onChange, compact, width }: { p: Product; qty: number; onChange: (q: number) => void; compact?: boolean; width?: number }) {
   const t = useTheme();
   const st = p.weighted ? 0.5 : 1;
   const h = compact ? 34 : 40;
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", height: h, borderRadius: 12, backgroundColor: t.brandSoft, overflow: "hidden", minWidth: compact ? 130 : undefined }}>
-      <Pressable accessibilityLabel="עוד" onPress={() => onChange(qty + st)} style={[s.stepBtn, { height: h }]}><Text style={[s.stepTxt, { color: t.brand }]}>+</Text></Pressable>
+    <View style={{ flexDirection: "row", alignItems: "center", height: h, borderRadius: 12, backgroundColor: t.brandSoft, overflow: "hidden", minWidth: compact ? 130 : undefined, width }}>
+      <Pressable accessibilityRole="button" accessibilityLabel="עוד" onPress={() => onChange(qty + st)} style={[s.stepBtn, { height: h, width: width ? 34 : 40 }]}><Text style={[s.stepTxt, { color: t.brand }]}>+</Text></Pressable>
       <Text style={{ flex: 1, textAlign: "center", fontWeight: "700", color: t.ink, fontVariant: ["tabular-nums"] }}>{p.weighted ? `${qty} ק״ג` : qty}</Text>
-      <Pressable accessibilityLabel="פחות" onPress={() => onChange(qty - st)} style={[s.stepBtn, { height: h }]}><Text style={[s.stepTxt, { color: t.brand }]}>−</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="פחות" onPress={() => onChange(qty - st)} style={[s.stepBtn, { height: h, width: width ? 34 : 40 }]}><Text style={[s.stepTxt, { color: t.brand }]}>−</Text></Pressable>
     </View>
   );
 }
@@ -91,9 +100,9 @@ export function ProductImage({ p, size }: { p: Product; size: number | "fill" })
   const [uri, setUri] = useState<string | null>(p.img ? engine.imageUrl(p.img) : null);
   const [tried, setTried] = useState(false);
   useEffect(() => { setUri(p.img ? engine.imageUrl(p.img) : null); setTried(false); }, [p.img]);
-  const box: ViewStyle = size === "fill" ? { width: "100%", aspectRatio: 4 / 3 } : { width: size, height: size };
+  const box: ViewStyle = size === "fill" ? { width: "100%", aspectRatio: 16 / 10 } : { width: size, height: size };
   const tint = CAT_TINT[p.cat] ?? CAT_TINT.other;
-  const mono = p.name.replace(/[^א-תa-zA-Z0-9]/g, "").slice(0, 2);
+  const iconSize = size === "fill" ? 34 : Math.max(18, Math.round(size * 0.42));
   return (
     <View style={[box, { borderRadius: 10, overflow: "hidden", backgroundColor: uri ? "#fff" : tint + "66", alignItems: "center", justifyContent: "center" }]}>
       {uri ? (
@@ -104,10 +113,32 @@ export function ProductImage({ p, size }: { p: Product; size: number | "fill" })
             setUri(await engine.fallbackImage(p.img));
           }} />
       ) : (
-        <Text style={{ fontSize: size === "fill" ? 30 : 18, color: t.ink, opacity: 0.85, fontWeight: "700" }}>{mono}</Text>
+        <Ionicons name={CAT_ICON[p.cat] ?? CAT_ICON.other} size={iconSize} color={t.ink} style={{ opacity: 0.55 }} />
       )}
-      {p.weighted ? <View style={{ position: "absolute", top: 6, left: 6, backgroundColor: t.surface, borderRadius: 6, paddingHorizontal: 6 }}><Text style={{ fontSize: 11, fontWeight: "700", color: t.ink }}>לק״ג</Text></View> : null}
+      {p.weighted ? <View style={{ position: "absolute", top: 4, left: 4, backgroundColor: t.surface, borderRadius: 6, paddingHorizontal: 5 }}><Text style={{ fontSize: 10.5, fontWeight: "700", color: t.ink }}>לק״ג</Text></View> : null}
     </View>
+  );
+}
+
+/** A bar fixed to the bottom of a screen (above the home indicator), for the one action that must always be reachable. */
+export function PinnedBar({ children }: { children: ReactNode }) {
+  const t = useTheme();
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: insets.bottom + 12, borderTopWidth: 1, borderTopColor: t.line, backgroundColor: t.bg }}>
+      {children}
+    </View>
+  );
+}
+
+/** Compact "add to cart" button for dense rows. */
+export function AddBtn({ onPress, label = "הוספה לסל" }: { onPress: () => void; label?: string }) {
+  const t = useTheme();
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={6}
+      style={({ pressed }) => ({ width: 104, height: 36, borderRadius: 12, backgroundColor: t.brand, alignItems: "center", justifyContent: "center", opacity: pressed ? 0.85 : 1 })}>
+      <Ionicons name="add" size={22} color={t.brandInk} />
+    </Pressable>
   );
 }
 

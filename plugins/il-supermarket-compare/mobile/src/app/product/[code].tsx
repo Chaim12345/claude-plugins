@@ -1,7 +1,8 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Button, DealBadge, Num, ProductImage, Stepper, T, useTheme } from "../../components/ui";
+import { Ionicons } from "@expo/vector-icons";
+import { Button, DealBadge, Num, PinnedBar, ProductImage, Stepper, T, useTheme } from "../../components/ui";
 import { dealText, dealUnit, money, shownPromos, storeKm } from "../../lib/compare";
 import { useData } from "../../lib/store";
 
@@ -18,15 +19,37 @@ export default function ProductSheet() {
   const rows = catalog.stores.map((s, i) => ({ s, i, v: p.prices[i] })).filter(r => r.v != null).sort((a, b) => a.v! - b.v!);
   const lo = rows[0]?.v ?? 0;
   const qty = cart[p.code] ?? 0;
+  const hi = rows.length ? rows[rows.length - 1].v! : 0;
   return (
-    <ScrollView contentContainerStyle={{ padding: 18, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24, gap: 12 }}>
+    <View style={{ flex: 1 }}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, paddingTop: insets.top + 8, paddingBottom: 18, gap: 12 }}>
+      <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="סגירה" hitSlop={8}
+          style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: t.surface2, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name="close" size={22} color={t.ink} />
+        </Pressable>
+      </View>
       <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
         <ProductImage p={p} size={96} />
         <View style={{ flex: 1, gap: 4 }}>
           <T style={{ fontSize: 20, fontWeight: "800" }}>{p.name}</T>
-          <T style={{ color: t.ink2, fontSize: 13 }}>{p.weighted ? "מחיר לק״ג · המוצר המקביל בכל רשת לפי שם" : `ברקוד ${p.code} · אותו מוצר בדיוק בכל הרשתות`}</T>
+          <T style={{ color: t.ink2, fontSize: 13 }}>{p.weighted ? "מחיר לק״ג · מוצר מקביל בכל רשת" : `ברקוד ${p.code}`}</T>
         </View>
       </View>
+      {rows.length > 1 && hi > lo ? (
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flex: 1, backgroundColor: t.good + "18", borderRadius: 12, padding: 12, gap: 2 }}>
+            <T style={{ color: t.ink2, fontSize: 12.5 }}>הכי זול</T>
+            <Num style={{ fontWeight: "800", fontSize: 20, color: t.good }}>{money(lo)} ₪</Num>
+            <T numberOfLines={1} style={{ fontSize: 12.5 }}>{rows[0].s.chain}</T>
+          </View>
+          <View style={{ flex: 1, backgroundColor: t.surface, borderRadius: 12, padding: 12, gap: 2 }}>
+            <T style={{ color: t.ink2, fontSize: 12.5 }}>הכי יקר</T>
+            <Num style={{ fontWeight: "800", fontSize: 20 }}>{money(hi)} ₪</Num>
+            <T numberOfLines={1} style={{ fontSize: 12.5, color: t.warn, fontWeight: "700" }}>+{Math.round((hi / lo - 1) * 100)}% מהזול</T>
+          </View>
+        </View>
+      ) : null}
       <View style={{ backgroundColor: t.surface, borderRadius: 14, paddingHorizontal: 12 }}>
         {rows.map(({ s, i, v }) => {
           const d = storeKm(catalog, i);
@@ -58,12 +81,11 @@ export default function ProductSheet() {
           );
         })}
       </View>
-      <View style={{ flexDirection: "row", gap: 10 }}>
-        <View style={{ flex: 1 }}>{qty ? <Stepper p={p} qty={qty} onChange={q => setQty(p.code, q)} /> : <Button title="הוספה לסל" onPress={() => setQty(p.code, 1)} />}</View>
-        <Pressable onPress={() => router.back()} style={{ flex: 1, height: 44, borderRadius: 12, backgroundColor: t.surface2, alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ fontWeight: "700", color: t.ink }}>סגירה</Text>
-        </Pressable>
-      </View>
     </ScrollView>
+    {/* Pinned, so adding is one tap however long the list of branches is. */}
+    <PinnedBar>
+      {qty ? <Stepper p={p} qty={qty} onChange={q => setQty(p.code, q)} /> : <Button title="הוספה לסל" onPress={() => setQty(p.code, 1)} />}
+    </PinnedBar>
+    </View>
   );
 }

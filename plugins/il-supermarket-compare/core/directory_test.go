@@ -186,3 +186,17 @@ func TestOfflineIndexEmbedded(t *testing.T) {
 		t.Errorf("ביאליק 50, רמת גן -> %v %v %v", ll, found, err)
 	}
 }
+
+func TestBranchLabel(t *testing.T) {
+	cases := []struct{ name, banner, city, want string }{
+		{"וולט מרקט | ביאליק", "וולט מרקט", "רמת גן", "ביאליק"},
+		{"שלי רמת גן- ביאליק", "שופרסל שלי", "רמת גן", "רמת גן- ביאליק"},
+		{"סניף א | ב", "רמי לוי", "חיפה", "סניף א · ב"},
+		{"רמי לוי", "רמי לוי", "חיפה", "חיפה"},
+	}
+	for _, c := range cases {
+		if got := branchLabel(DirStore{Name: c.name, Banner: c.banner, City: c.city}); got != c.want {
+			t.Errorf("branchLabel(%q) = %q, want %q", c.name, got, c.want)
+		}
+	}
+}

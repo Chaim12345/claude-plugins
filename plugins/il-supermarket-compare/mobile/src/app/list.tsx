@@ -134,7 +134,7 @@ export default function PasteList() {
       </ScrollView>
       <View style={{ padding: 14, paddingBottom: insets.bottom + 14, gap: 8, backgroundColor: t.surface, borderTopWidth: 1, borderTopColor: t.line, flexDirection: "row" }}>
         <Button title={chosen ? `הוספה לסל (${chosen})` : "הוספה לסל"} style={{ flex: 2 }} disabled={!chosen} onPress={add} />
-        <Button kind="ghost" title="עריכת הרשימה" style={{ flex: 1 }} onPress={() => setRows(null)} />
+        <Button kind="ghost" title="עריכה" style={{ flex: 0.6 }} onPress={() => setRows(null)} />
       </View>
     </View>
   );

@@ -13,6 +13,7 @@ export default function TabLayout() {
   return (
     <Tabs screenOptions={{
       header: () => <Header />,
+      sceneStyle: { backgroundColor: t.bg }, // otherwise the screens stay white in dark mode
       tabBarActiveTintColor: t.brand, tabBarInactiveTintColor: t.ink2,
       tabBarStyle: { backgroundColor: t.surface, borderTopColor: t.line },
       tabBarLabelStyle: { fontWeight: "700" },

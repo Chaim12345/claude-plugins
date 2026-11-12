@@ -1,14 +1,19 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useState } from "react";
 import { Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { MoreChains } from "../../components/MoreChains";
 import { Button, DealBadge, Num, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
-import { clubChains, dealText, fmtDate, money, priceInfo, storeKm } from "../../lib/compare";
+import { clubChains, dealText, fmtDate, money, priceInfo, storeKm, type Comparison } from "../../lib/compare";
+import type { Catalog } from "../../lib/types";
 import { useData } from "../../lib/store";
 
 export default function CartScreen() {
   const t = useTheme();
   const router = useRouter();
   const { catalog, comparison: c, active, setQty, clearCart, place, saved, club, setClub, setClubAll } = useData();
+  const [showAll, setShowAll] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   if (!catalog || !c || !c.items.length) {
     return (
@@ -27,13 +32,41 @@ export default function CartScreen() {
   const chains = clubChains(catalog);
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
+      <Hero catalog={catalog} c={c} />
       <View style={{ flexDirection: "row", gap: 8 }}>
-        <Button kind="ghost" title="שמירה / רשימות" style={{ flex: 1, height: 40 }} onPress={() => router.push("/saved")} />
-        <Button kind="ghost" title="הדבקת רשימה" style={{ flex: 1, height: 40 }} onPress={() => router.push("/list")} />
-        {canScan() ? <Button kind="ghost" title="סריקה" style={{ flex: 1, height: 40 }} onPress={() => router.push("/scan")} /> : null}
+        <Action icon="bookmark-outline" label="שמורות" onPress={() => router.push("/saved")} />
+        <Action icon="clipboard-outline" label="הדבקה" onPress={() => router.push("/list")} />
+        {canScan() ? <Action icon="barcode-outline" label="סריקה" onPress={() => router.push("/scan")} /> : null}
       </View>
-      <Section title="איפה לקנות" action={<Pressable onPress={clearCart}><Text style={{ color: t.brand, fontWeight: "700" }}>ריקון הסל</Text></Pressable>}>
-        {c.rows.map((r, k) => {
+      <Section title={`הפריטים (${c.items.length})`} action={
+        confirmClear
+          ? <Pressable onPress={() => { clearCart(); setConfirmClear(false); }} accessibilityRole="button" hitSlop={8}><Text style={{ color: t.bad, fontWeight: "800" }}>למחוק הכל?</Text></Pressable>
+          : <Pressable onPress={() => setConfirmClear(true)} accessibilityRole="button" hitSlop={8}><Text style={{ color: t.brand, fontWeight: "700" }}>ריקון הסל</Text></Pressable>
+      }>
+        {c.lines.map(({ p, q, best: b }) => {
+          return (
+            <View key={p.code} style={{ flexDirection: "row", gap: 10, alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.line, borderStyle: "dashed" }}>
+              <Pressable onPress={() => router.push(`/product/${encodeURIComponent(p.code)}`)}><ProductImage p={p} size={52} /></Pressable>
+              <View style={{ flex: 1, gap: 6, minWidth: 0 }}>
+                <T numberOfLines={1} style={{ fontWeight: "600", fontSize: 14 }}>{p.name}</T>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <Stepper p={p} qty={q} onChange={v => setQty(p.code, v)} compact />
+                  <T style={{ color: t.ink2, fontSize: 13 }}>{!b ? "—" : `מ־${money(b.cost)} ₪`}</T>
+                </View>
+                {b?.promo ? (
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <DealBadge text={dealText(b.promo)} club={b.promo.club} />
+                    <T style={{ color: t.bad, fontSize: 12, fontWeight: "700" }}>חוסך {money(b.shelf - b.cost)} ₪ ב{catalog.stores[b.i].chain}</T>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          );
+        })}
+      </Section>
+
+      <Section title="איפה לקנות">
+        {(showAll ? c.rows : c.rows.slice(0, 3)).map((r, k) => {
           const s = catalog.stores[r.i];
           const d = storeKm(catalog, r.i);
           const pct = c.common && r.fair > c.fairLow ? `+${((r.fair / c.fairLow - 1) * 100).toFixed(1)}% על אותם מוצרים` : c.common ? "הכי זול על אותם מוצרים" : "";
@@ -61,6 +94,11 @@ export default function CartScreen() {
             </View>
           );
         })}
+        {c.rows.length > 3 ? (
+          <Pressable onPress={() => setShowAll(v => !v)} accessibilityRole="button" style={{ alignItems: "center", paddingVertical: 8 }}>
+            <Text style={{ color: t.brand, fontWeight: "700" }}>{showAll ? "הצגת פחות" : `הצגת כל ${c.rows.length} הסניפים`}</Text>
+          </Pressable>
+        ) : null}
         <View style={{ backgroundColor: t.surface2, borderRadius: 12, padding: 12 }}>
           <T>קנייה מפוצלת בין {c.splitStores} סניפים: <Text style={{ fontWeight: "800" }}>{money(c.split)} ₪</Text>{save > 0 ? <Text> · חוסך <Text style={{ fontWeight: "800" }}>{money(save)} ₪</Text></Text> : null}{c.splitShelf > c.split ? <Text style={{ color: t.ink2 }}> · ללא מבצעים: {money(c.splitShelf)} ₪</Text> : null}</T>
         </View>
@@ -85,29 +123,6 @@ export default function CartScreen() {
         </Section>
       ) : null}
 
-      <Section title={`הפריטים (${c.items.length})`}>
-        {c.lines.map(({ p, q, best: b }) => {
-          return (
-            <View key={p.code} style={{ flexDirection: "row", gap: 10, alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.line, borderStyle: "dashed" }}>
-              <Pressable onPress={() => router.push(`/product/${encodeURIComponent(p.code)}`)}><ProductImage p={p} size={52} /></Pressable>
-              <View style={{ flex: 1, gap: 6, minWidth: 0 }}>
-                <T numberOfLines={1} style={{ fontWeight: "600", fontSize: 14 }}>{p.name}</T>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                  <Stepper p={p} qty={q} onChange={v => setQty(p.code, v)} compact />
-                  <T style={{ color: t.ink2, fontSize: 13 }}>{!b ? "—" : `מ־${money(b.cost)} ₪`}</T>
-                </View>
-                {b?.promo ? (
-                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                    <DealBadge text={dealText(b.promo)} club={b.promo.club} />
-                    <T style={{ color: t.bad, fontSize: 12, fontWeight: "700" }}>חוסך {money(b.shelf - b.cost)} ₪ ב{catalog.stores[b.i].chain}</T>
-                  </View>
-                ) : null}
-              </View>
-            </View>
-          );
-        })}
-      </Section>
-
       <T style={{ color: t.ink2, fontSize: 12.5, lineHeight: 18 }}>
         השוואה הוגנת על {c.common} מתוך {c.items.length} מוצרים שיש בכל הסניפים. מחירים ומבצעים מקובצי המחירים הרשמיים של הרשתות (חוק המזון), {fmtDate(catalog.priceDate)}. נספרים מבצעי מחיר, ״N ב־X״ ואחוזי הנחה על מוצר בודד; קופונים, מתנות והנחות על סכום קנייה לא נספרים. מבצע ״N ב־X״ חל על כל N יחידות מאותו מוצר. מרחק בקו אווירי.
       </T>
@@ -124,6 +139,47 @@ function Section({ title, action, children }: { title: string; action?: React.Re
         {action}
       </View>
       {children}
+    </View>
+  );
+}
+
+function Action({ icon, label, onPress }: { icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; onPress: () => void }) {
+  const t = useTheme();
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label}
+      style={({ pressed }) => ({ flex: 1, height: 44, borderRadius: 12, backgroundColor: t.surface2, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, opacity: pressed ? 0.85 : 1 })}>
+      <Ionicons name={icon} size={18} color={t.brand} />
+      <Text style={{ color: t.ink, fontWeight: "700", fontSize: 14 }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** The answer in one glance: where the whole basket is cheapest, and how much that saves. */
+function Hero({ catalog, c }: { catalog: Catalog; c: Comparison }) {
+  const t = useTheme();
+  const best = c.rows[0];
+  if (!best) return null;
+  const s = catalog.stores[best.i];
+  const d = storeKm(catalog, best.i);
+  const complete = c.rows.filter(r => !r.missing.length);
+  const worst = complete.length > 1 ? Math.max(...complete.map(r => r.total)) : 0;
+  const saving = !best.missing.length && worst > best.total ? worst - best.total : 0;
+  return (
+    <View style={{ backgroundColor: t.brand, borderRadius: 16, padding: 16, gap: 6 }}>
+      <Text style={{ color: t.brandInk, opacity: 0.85, fontSize: 13, textAlign: "right", writingDirection: "rtl" }}>
+        {best.missing.length ? "הסניף שהכי מתאים לסל שלכם" : "הסל שלכם הכי זול ב"}
+      </Text>
+      <Text style={{ color: t.brandInk, fontSize: 22, fontWeight: "800", textAlign: "right", writingDirection: "rtl" }}>{s.chain}</Text>
+      <Text numberOfLines={1} style={{ color: t.brandInk, opacity: 0.85, fontSize: 13, textAlign: "right", writingDirection: "rtl" }}>{s.branch}{d != null ? ` · ${d.toFixed(1)} ק״מ` : ""}</Text>
+      <View style={{ flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 10, marginTop: 4 }}>
+        <Text style={{ color: t.brandInk, fontSize: 34, fontWeight: "800", fontVariant: ["tabular-nums"] }}>{money(best.total)}<Text style={{ fontSize: 18 }}> ₪</Text></Text>
+        {saving > 0 ? (
+          <View style={{ backgroundColor: t.brandInk, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}>
+            <Text style={{ color: t.brand, fontWeight: "800", fontSize: 13 }}>חוסך {money(saving)} ₪ מול הסניף היקר</Text>
+          </View>
+        ) : null}
+      </View>
+      {best.missing.length ? <Text style={{ color: t.brandInk, fontSize: 12.5, textAlign: "right", writingDirection: "rtl" }}>חסרים בסניף: {best.missing.length} מוצרים</Text> : null}
     </View>
   );
 }
