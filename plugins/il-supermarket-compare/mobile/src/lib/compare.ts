@@ -7,8 +7,10 @@ export function norm(s: string): string {
 
 export function toProducts(c: Catalog): Map<string, Product> {
   const m = new Map<string, Product>();
-  for (const [code, name, cat, w, prices, picks, img] of c.products) {
-    m.set(code, { code, name, cat, weighted: w === 1, prices, picks, img: img ?? null, key: norm(name) });
+  for (const [code, name, cat, w, prices, picks, img, meta] of c.products) {
+    // the manufacturer is searchable: "אסם" finds Osem's products whose names don't say so
+    const key = meta?.maker && !norm(name).includes(norm(meta.maker)) ? `${norm(name)} ${norm(meta.maker)}` : norm(name);
+    m.set(code, { code, name, cat, weighted: w === 1, prices, picks, img: img ?? null, key, meta: meta ?? null });
   }
   return m;
 }
@@ -23,6 +25,26 @@ export function storeKm(c: Catalog, i: number): number | null {
   const a = c.areas[0], s = c.stores[i];
   if (!a || s.lat == null || s.lon == null) return null;
   return km(a.lat, a.lon, s.lat, s.lon);
+}
+
+/** A branch that has not sold an item for this many days probably doesn't have it on the shelf. */
+export const STALE_DAYS = 30;
+
+/** Days since store i last sold the product, when its chain reports that and it is 14 or more; else 0. */
+export function soldDaysAgo(p: Product, i: number): number {
+  const l = p.meta?.stale;
+  if (l) for (const [s, d] of l) if (s === i) return d;
+  return 0;
+}
+
+/** Listed and priced at store i, but not sold there for a month or more. */
+export const isStale = (p: Product, i: number) => soldDaysAgo(p, i) >= STALE_DAYS;
+
+/** Days since store i changed this price (0 = today), when its chain reports that and it was within 30 days; else null. */
+export function changedDaysAgo(p: Product, i: number): number | null {
+  const l = p.meta?.chg;
+  if (l) for (const [s, d] of l) if (s === i) return d;
+  return null;
 }
 
 export type PriceInfo = { lo: number | null; hi: number | null; at: number; n: number };
@@ -173,6 +195,7 @@ export type StoreTotal = {
   fairShelf: number; // like-for-like total at shelf prices
   deals: number; // items in the basket that get a promotion here
   missing: string[];
+  doubt: string[]; // priced here, but the branch has not sold them for a month: may not be on the shelf
 };
 export type Line = { p: Product; q: number; best: (Priced & { i: number }) | null }; // cheapest active store for this item, promotions counted
 export type Comparison = {
@@ -196,16 +219,17 @@ export function compare(products: Map<string, Product>, cart: Cart, active: numb
   const commonItems = items.filter(([p]) => active.every(i => p.prices[i] != null));
   const rows: StoreTotal[] = active.map(i => {
     let total = 0, shelf = 0, n = 0;
-    const missing: string[] = [];
+    const missing: string[] = [], doubt: string[] = [];
     for (const [p, q] of items) {
       const r = priceAt(p, i, q, deals);
       if (!r) { missing.push(p.name); continue; }
       total += r.cost; shelf += r.shelf;
       if (r.promo) n++;
+      if (isStale(p, i)) doubt.push(p.name);
     }
     let fair = 0, fairShelf = 0;
     for (const [p, q] of commonItems) { const r = priceAt(p, i, q, deals)!; fair += r.cost; fairShelf += r.shelf; }
-    return { i, total: Math.round(total), shelf: Math.round(shelf), fair: Math.round(fair), fairShelf: Math.round(fairShelf), deals: n, missing };
+    return { i, total: Math.round(total), shelf: Math.round(shelf), fair: Math.round(fair), fairShelf: Math.round(fairShelf), deals: n, missing, doubt };
   });
   rows.sort((a, b) => a.missing.length - b.missing.length || a.total - b.total);
   let split = 0, splitShelf = 0;

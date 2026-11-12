@@ -13,7 +13,7 @@
 //  5. The same promotion at several branches of one chain is one card ("בכל N סניפים"), shown at the branch where it is cheapest.
 import { chainKey, dealUnit, money, priceInfo, stampMs, storeKm } from "./compare.ts";
 import type { Catalog, Product, Promo } from "./types.ts";
-import { parseSize, unitPrice, compareUnit, type UnitPrice } from "./units.ts";
+import { sizeOf, unitPrice, compareUnit, type Size, type UnitPrice } from "./units.ts";
 
 export type Verdict = "real" | "alone" | "notCheapest";
 
@@ -69,15 +69,16 @@ const distOf = (c: Catalog, i: number) => storeKm(c, i) ?? 1e9;
 export function buildDeals(c: Catalog, products: Map<string, Product>, opts: BuildOpts): DealItem[] {
   const now = opts.now ?? Date.now();
   const club = opts.club ?? {};
+  const legacy = (c.version ?? 0) < 2; // newer catalogs price "the second one for X" as the real pair
   const out = new Map<string, DealItem>();
-  const sizes = new Map<string, ReturnType<typeof parseSize>>();
+  const sizes = new Map<string, Size | null>();
   const info = new Map<string, ReturnType<typeof priceInfo>>();
   for (const i of opts.active) {
     const store = c.stores[i];
     if (!store) continue;
     const ck = chainKey(store.id);
     for (const pr of c.promos?.[i] ?? []) {
-      if (misModeled(pr)) continue;
+      if (legacy && misModeled(pr)) continue;
       let endMs = stampMs(pr.end);
       if (endMs != null && endMs < now) continue;
       if (endMs != null && endMs - now > OPEN_ENDED_MS) endMs = null;
@@ -115,7 +116,7 @@ export function buildDeals(c: Catalog, products: Map<string, Product>, opts: Bui
     d.realPct = (1 - d.unit / d.cheapest) * 100;
     d.realAgorot = Math.round((d.cheapest - d.unit) * d.qty);
     d.verdict = d.comparedStores < 2 ? "alone" : d.unit < d.cheapest - 1e-9 ? "real" : "notCheapest";
-    if (!sizes.has(d.code)) sizes.set(d.code, parseSize(d.product.name, d.product.cat));
+    if (!sizes.has(d.code)) sizes.set(d.code, sizeOf(d.product));
     const z = sizes.get(d.code)!;
     d.unitPrice = unitPrice(z, d.unit);
     d.shelfUnitPrice = unitPrice(z, d.shelf);

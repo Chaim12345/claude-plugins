@@ -148,12 +148,31 @@ export function withoutSize(name: string): string {
 
 const sizeCache = new Map<string, Size | null>();
 
-/** parseSize for a catalog product, remembered (the products screen asks for thousands of them). Fresh items sold by weight have no pack size. */
-export function sizeOf(p: { code: string; name: string; cat: string; weighted?: boolean }): Size | null {
+type Sized = { code: string; name: string; cat: string; weighted?: boolean; meta?: { size?: [number, "g" | "ml" | "u", number] } | null };
+const KIND_OF = { g: "weight", ml: "volume", u: "count" } as const;
+
+/**
+ * The pack size of a catalog product, remembered (the products screen asks for thousands of them).
+ * Two sources: the size the chains state in their files (meta.size, with how many chains agree) and the
+ * product's name. The chains' figure wins when two or more agree: it is the total of a multi-pack and is
+ * not fooled by "20 גרם חלבון". A multi-pack spelled out in the name ("6x330") wins over both. A single
+ * chain's figure is used only when the name has no size. Fresh items sold by weight have no pack size.
+ */
+export function sizeOf(p: Sized): Size | null {
   if (p.weighted) return null;
-  const k = `${p.code}|${p.name}`;
+  const s = p.meta?.size;
+  const k = `${p.code}|${p.name}|${s ? s.join(":") : ""}`;
   let z = sizeCache.get(k);
-  if (z === undefined) { z = parseSize(p.name, p.cat); sizeCache.set(k, z); }
+  if (z !== undefined) return z;
+  const named = parseSize(p.name, p.cat);
+  z = named;
+  if (s && KIND_OF[s[1]] && s[0] > 0) {
+    const stated: Size = { kind: KIND_OF[s[1]], amount: s[0], packs: 1 };
+    if (named && named.packs > 1) z = named;
+    else if (s[2] >= 2) z = named && named.kind === stated.kind && Math.abs(named.amount - stated.amount) <= 0.02 * stated.amount ? named : stated;
+    else z = named ?? stated;
+  }
+  sizeCache.set(k, z);
   return z;
 }
 

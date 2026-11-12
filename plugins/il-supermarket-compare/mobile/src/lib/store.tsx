@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { compare, makeDeals, toProducts, type ClubPrefs, type Comparison, type Deals } from "./compare";
 import { addedCount, discoverLine, isDiscovering, nextNote, shouldCheckDiscovery, type DiscoverResult } from "./discover";
 import { engine } from "./engine";
+import { bumpFreq, diffCatalogs, mergeChanges, trimFreq, type Change, type Freq } from "./insights";
 import { cleanName, mergeCarts, newId, uniqueName, type SavedList } from "./saved";
 import type { Cart, Catalog, Place, Product, SyncEvent } from "./types";
 
@@ -22,6 +23,8 @@ type Ctx = {
   deals: Deals | undefined; // promotions and club prices; undefined for catalogs without them
   club: ClubPrefs; // chains whose club prices the user can get
   ready: boolean; // finished reading saved state
+  freq: Freq; // how often each product was put in a cart (for "my regulars")
+  changes: Change[]; // prices that moved between syncs, last 30 days
   setQty(code: string, qty: number): void;
   addMany(items: Cart): void; // adds quantities to what is already in the cart
   saved: SavedList[];
@@ -39,7 +42,9 @@ type Ctx = {
 
 const C = createContext<Ctx | null>(null);
 
-const KEY = { cart: "salzol:cart", place: "salzol:place", off: "salzol:off", saved: "salzol:saved", club: "salzol:club" };
+const KEY = { cart: "salzol:cart", place: "salzol:place", off: "salzol:off", saved: "salzol:saved", club: "salzol:club", freq: "salzol:freq", changes: "salzol:changes" };
+
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
 async function load<T>(k: string, d: T): Promise<T> {
   try {
@@ -60,6 +65,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [club, setClubState] = useState<ClubPrefs>({});
   const [sync, setSync] = useState<SyncState>({ running: false, events: [], error: null });
   const [ready, setReady] = useState(false);
+  const [freq, setFreq] = useState<Freq>({});
+  const [changes, setChanges] = useState<Change[]>([]);
+  const shown = useRef<Catalog | null>(null); // the catalog on screen, to compare the next one against
   const busy = useRef(false);
   const lastDiscover = useRef<number | null>(null);
   const shownNote = useRef<string | null>(null);
@@ -101,6 +109,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
     try {
       await discover(p);
       const c = await engine.sync(p, e => setSync(s => ({ ...s, events: [...s.events, e] })));
+      // What moved since the catalog we were showing: the files say when a price changed, this says which way.
+      if (shown.current && shown.current !== c) {
+        const moved = diffCatalogs(shown.current, c, today());
+        if (moved.length) setChanges(prev => { const next = mergeChanges(prev, moved, today()); save(KEY.changes, next); return next; });
+      }
+      shown.current = c;
       setCatalog(c);
       setSync(s => ({ ...s, running: false }));
     } catch (e) {
@@ -114,10 +128,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // Start-up: saved state first, then the last catalog, then a refresh (fast when nothing is new).
   useEffect(() => {
     (async () => {
-      const [c, p, o, sv, cl] = await Promise.all([load<Cart>(KEY.cart, {}), load<Place | null>(KEY.place, null), load<string[]>(KEY.off, []), load<SavedList[]>(KEY.saved, []), load<ClubPrefs>(KEY.club, {})]);
+      const [c, p, o, sv, cl, fq, ch] = await Promise.all([load<Cart>(KEY.cart, {}), load<Place | null>(KEY.place, null), load<string[]>(KEY.off, []), load<SavedList[]>(KEY.saved, []), load<ClubPrefs>(KEY.club, {}), load<Freq>(KEY.freq, {}), load<Change[]>(KEY.changes, [])]);
       setCart(c); setPlace(p); setOff(o); setSaved(Array.isArray(sv) ? sv : []); setClubState(cl);
+      setFreq(fq && typeof fq === "object" ? fq : {}); setChanges(Array.isArray(ch) ? mergeChanges(ch, [], today()) : []);
       const cached = await engine.cached(p).catch(() => null);
-      if (cached) setCatalog(cached);
+      if (cached) { shown.current = cached; setCatalog(cached); }
       setReady(true);
       runSyncFor(p);
     })();
@@ -128,9 +143,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const deals = useMemo(() => (catalog?.promos ? makeDeals(catalog, club) : undefined), [catalog, club]);
   const comparison = useMemo(() => (catalog && Object.keys(cart).length ? compare(products, cart, active, deals) : null), [catalog, products, cart, active, deals]);
 
+  // "My regulars": every product put in a cart counts, at most once a day.
+  const used = (codes: string[]) => setFreq(prev => {
+    let next = prev;
+    const now = Date.now();
+    for (const code of codes) next = bumpFreq(next, code, now);
+    if (next === prev) return prev;
+    next = trimFreq(next);
+    save(KEY.freq, next);
+    return next;
+  });
+
   const value: Ctx = {
-    catalog, products, active, cart, place, sync, comparison, deals, club, ready, saved,
+    catalog, products, active, cart, place, sync, comparison, deals, club, ready, saved, freq, changes,
     addMany(items) {
+      used(Object.keys(items));
       setCart(prev => {
         const next = mergeCarts(prev, items);
         save(KEY.cart, next);
@@ -165,6 +192,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       });
     },
     setQty(code, qty) {
+      if (qty > 0 && !(code in cart)) used([code]);
       setCart(prev => {
         const next = { ...prev };
         if (qty <= 0) delete next[code]; else next[code] = Math.round(qty * 10) / 10;
@@ -195,7 +223,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return next;
       });
     },
-    choosePlace(p) { setPlace(p); save(KEY.place, p); setOff([]); save(KEY.off, []); runSyncFor(p); },
+    // A new place means other branches: the old catalog is not a "before" for the new one.
+    choosePlace(p) { shown.current = null; setPlace(p); save(KEY.place, p); setOff([]); save(KEY.off, []); runSyncFor(p); },
     runSync() { runSyncFor(place); },
   };
   return <C.Provider value={value}>{children}</C.Provider>;

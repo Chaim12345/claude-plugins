@@ -12,7 +12,7 @@
 // An unknown brand stays in the words, so two products with different unknown brands never match.
 import { km, priceAt, type Deals } from "./compare.ts";
 import type { Cart, Catalog, Product } from "./types.ts";
-import { parseSize, similarSize, sizeText, unitPrice, withoutSize, type Size, type UnitPrice } from "./units.ts";
+import { sizeOf, similarSize, sizeText, unitPrice, withoutSize, type Size, type UnitPrice } from "./units.ts";
 
 /** Brands and private labels that loose matching may ignore (staples only, see COMMODITY). */
 export const BRANDS = new Set(
@@ -67,7 +67,7 @@ export function swapIndex(products: Map<string, Product>): SwapIndex {
   const add = (k: string, e: Entry) => { const l = idx!.get(k); if (l) l.push(e); else idx!.set(k, [e]); };
   for (const p of products.values()) {
     if (p.weighted) continue;
-    const size = parseSize(p.name, p.cat);
+    const size = sizeOf(p);
     const keys = size ? typeKeys(p.name) : null;
     if (!size || !keys) continue;
     const e = { p, size };
@@ -141,7 +141,7 @@ export function findSwaps(c: Catalog, products: Map<string, Product>, cart: Cart
   for (const [code, q] of Object.entries(cart)) {
     const p = products.get(code);
     if (!p || p.weighted || !(q > 0)) continue;
-    const size = parseSize(p.name, p.cat), keys = typeKeys(p.name);
+    const size = sizeOf(p), keys = typeKeys(p.name);
     if (!size || !keys) continue;
     // where the cart item is cheapest right now
     let home = -1, cost = Infinity;
