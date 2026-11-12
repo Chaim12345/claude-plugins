@@ -4,11 +4,14 @@ import (
 	"math"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 // Catalog is what the apps render. Its JSON shape is the same data.json the web prototype reads.
 type Catalog struct {
+	// Version changes when the catalog gains data an unchanged set of files would not show (see CatalogVersion).
+	Version     int        `json:"version"`
 	PriceDate   string     `json:"priceDate"`
 	GeneratedAt string     `json:"generatedAt"`
 	Stores      []Store    `json:"stores"`
@@ -16,7 +19,8 @@ type Catalog struct {
 	Areas       []Area     `json:"areas"`
 	Categories  []Category `json:"categories"`
 	// Each product: [code, name, category, weighted (1 = price per kg), prices in agorot per store (null = not sold),
-	// matched names per store (fresh items only, else null), image code (barcode to look a photo up by, or null)]
+	// matched names per store (fresh items only, else null), image code (barcode to look a photo up by, or null),
+	// metadata (ProductMeta, or null)]
 	Products [][]any  `json:"products"`
 	Images   []string `json:"imageSources"` // URL templates tried in order; {code} is replaced
 	// Promos[i] are store i's promotions (see Promo), referring to packaged product codes. Older
@@ -36,7 +40,14 @@ type Store struct {
 	File      string   `json:"file,omitempty"`      // the published file these prices came from
 	FileTime  string   `json:"fileTime,omitempty"`  // its timestamp, YYYYMMDDhhmm
 	PromoFile string   `json:"promoFile,omitempty"` // the PromoFull file the promos came from, if any
+	// Which per-product signals this branch's file supports (ProductMeta.Stale and .Chg).
+	HasSold bool `json:"hasSold,omitempty"`
+	HasChg  bool `json:"hasChg,omitempty"`
 }
+
+// CatalogVersion is written to Catalog.Version. A stored catalog with an older version is rebuilt
+// from the files already downloaded, instead of being served as "unchanged".
+const CatalogVersion = 2
 
 type Area struct {
 	Name string  `json:"name"`
@@ -158,6 +169,19 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 	type entry struct {
 		names  []string
 		prices []float64 // NaN = missing
+		meta   metaBuilder
+	}
+	sigs := make([]StoreSignals, n)
+	chainOf := make([]string, n) // one vote per chain, however many of its branches are compared
+	for i, sd := range stores {
+		sigs[i] = Signals(sd)
+		if i < len(chainKeys) && chainKeys[i] != "" {
+			chainOf[i] = chainKeys[i]
+		} else if sd.Store.Chain != "" {
+			chainOf[i] = sd.Store.Chain
+		} else {
+			chainOf[i] = "#" + strconv.Itoa(i)
+		}
 	}
 	byCode := map[string]*entry{}
 	for i, sd := range stores {
@@ -176,6 +200,7 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 			if math.IsNaN(e.prices[i]) {
 				e.prices[i] = it.Price
 				e.names = append(e.names, it.Name)
+				e.meta.add(i, chainOf[i], it, sigs[i])
 			}
 		}
 	}
@@ -209,26 +234,47 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 				name = s
 			}
 		}
-		products = append(products, []any{code, name, Categorize(name), 0, prices, nil, code})
+		cat := Categorize(name)
+		meta := e.meta.build(cat)
+		if meta != nil { // signals of a store whose price was dropped as an outlier mean nothing
+			meta.Stale, meta.Chg = keepPriced(meta.Stale, prices), keepPriced(meta.Chg, prices)
+			if meta.empty() {
+				meta = nil
+			}
+		}
+		products = append(products, product(code, name, cat, 0, prices, nil, code, meta))
 	}
 
 	for _, fr := range FreshRules {
 		prices, picks := make([]any, n), make([]any, n)
 		var img any
+		var mb metaBuilder
 		found := 0
 		for i, sd := range stores {
-			var best *Item
+			// The cheapest match the branch is actually selling: a tomato at 3.90 that last sold two
+			// months ago is a leftover row, not a price. It is used only when nothing fresher matches.
+			var best, bestOld *Item
 			for k := range sd.Items {
 				it := &sd.Items[k]
 				if !it.Weighted || it.Price < fr.Min || it.Price > fr.Max || !fr.inc.MatchString(it.Name) || (fr.exc != nil && fr.exc.MatchString(it.Name)) {
+					continue
+				}
+				if sigs[i].HasSold && daysBetween(sigs[i].Ref, parseStamp(it.Sold)) >= freshStaleDays {
+					if bestOld == nil || it.Price < bestOld.Price {
+						bestOld = it
+					}
 					continue
 				}
 				if best == nil || it.Price < best.Price {
 					best = it
 				}
 			}
+			if best == nil {
+				best = bestOld
+			}
 			if best != nil {
 				prices[i], picks[i] = int(math.Round(best.Price*100)), best.Name
+				mb.dates(i, *best, sigs[i])
 				found++
 				if img == nil && i < len(chainKeys) && chainKeys[i] == RamiLevyChain && len(best.Code) >= 7 {
 					img = best.Code
@@ -236,7 +282,7 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 			}
 		}
 		if found >= 2 {
-			products = append(products, []any{fr.ID, fr.Label, fr.Category, 1, prices, picks, img})
+			products = append(products, product(fr.ID, fr.Label, fr.Category, 1, prices, picks, img, mb.build(fr.Category)))
 		}
 	}
 
@@ -261,6 +307,31 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 		return products[a][1].(string) < products[b][1].(string)
 	})
 	return products
+}
+
+// freshStaleDays: a fresh item not sold for this long is passed over when a fresher match exists.
+const freshStaleDays = 30
+
+// product builds the catalog tuple; the metadata slot is a JSON null when there is none.
+func product(code, name, cat string, weighted int, prices []any, picks any, img any, meta *ProductMeta) []any {
+	var m any
+	if !meta.empty() {
+		m = meta
+	}
+	return []any{code, name, cat, weighted, prices, picks, img, m}
+}
+
+func keepPriced(xs [][2]int, prices []any) [][2]int {
+	out := xs[:0]
+	for _, x := range xs {
+		if x[0] < len(prices) && prices[x[0]] != nil {
+			out = append(out, x)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func median(xs []float64) float64 {

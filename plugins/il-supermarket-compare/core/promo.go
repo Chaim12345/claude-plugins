@@ -384,6 +384,18 @@ func normalizePromotion(n *node) ([]Promo, string) {
 			continue
 		}
 		t.max = int(num("maxqty"))
+		if t.max == 0 {
+			t.max = limitFromText(desc)
+			if t.kind == KindBundle && t.max > 0 && t.max < t.minQty {
+				t.max *= t.minQty // "3ב10 מו1": one redemption of the bundle, not one unit
+			}
+		}
+		if t.max == 0 {
+			// RedemptionLimit counts redemptions: 2 for "2ב100 מו4" (four units).
+			if rl := n.num("redemptionlimit"); rl >= 1 && rl <= 50 && rl == math.Trunc(rl) {
+				t.max = int(rl) * t.minQty
+			}
+		}
 		p := byTerms[t]
 		if p == nil {
 			p = &Promo{ID: id, MinQty: t.minQty, Kind: t.kind, Value: t.value, Club: club, Desc: CleanPromoDesc(desc), Max: t.max, Start: start, End: end, second: t.second}
@@ -403,6 +415,19 @@ func normalizePromotion(n *node) ([]Promo, string) {
 		out = append(out, *byTerms[t])
 	}
 	return out, ""
+}
+
+// limitRx reads the unit limit the chains write into the description when they leave MaxQty empty:
+// "ב7.90 מו3", "12.9 מוג 3", "מוגבל ל3".
+var limitRx = regexp.MustCompile(`(?:^|\s)(?:מוגבל\s*ל-?\s*|מוג\s?|מו\s?)(\d{1,2})(?:\s|$)`)
+
+func limitFromText(desc string) int {
+	m := limitRx.FindStringSubmatch(desc)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
 }
 
 // secondItemRx matches "השני בחצי מחיר", "השני ב-5", "המוצר השני ב…": the published price is the

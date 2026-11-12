@@ -105,7 +105,7 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 	wg.Wait()
 
 	// Nothing new since the last catalog? Then the answer is the catalog we already have.
-	if prev, err := LoadCatalogFile(s.catalogPath()); err == nil && unchanged(prev, cfg, results) {
+	if prev, err := LoadCatalogFile(s.catalogPath()); err == nil && prev.Version == CatalogVersion && unchanged(prev, cfg, results) {
 		s.emit(Event{Phase: "done", Message: "unchanged", Items: len(prev.Products), Millis: time.Since(start).Milliseconds()})
 		return prev, nil
 	}
@@ -168,6 +168,7 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 	t := time.Now()
 	products := BuildCatalog(stores, min(cfg.MinStores, len(stores)), keys)
 	cat := &Catalog{
+		Version:     CatalogVersion,
 		PriceDate:   priceDate(stores),
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Skipped:     skipped,
@@ -181,6 +182,8 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 		cat.Skipped = []string{}
 	}
 	for _, sd := range stores {
+		sig := Signals(sd)
+		sd.Store.HasSold, sd.Store.HasChg = sig.HasSold, sig.HasChg
 		cat.Stores = append(cat.Stores, sd.Store)
 	}
 	s.emit(Event{Phase: "build", Items: len(products), Millis: time.Since(t).Milliseconds()})

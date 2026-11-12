@@ -22,6 +22,11 @@ type Item struct {
 	Unit     string  `json:"unit,omitempty"`
 	Weighted bool    `json:"weighted,omitempty"` // true = Price is per kg
 	Maker    string  `json:"maker,omitempty"`
+	// The rest feed ProductMeta (meta.go); every chain fills them differently, or not at all.
+	UnitQty string `json:"unitQty,omitempty"` // the unit Qty is in: "גרם", "מיליליטר", "יחידות"
+	Country string `json:"country,omitempty"` // "IL", "ישראל", "IT"...
+	Updated string `json:"updated,omitempty"` // when this branch last changed the price
+	Sold    string `json:"sold,omitempty"`    // when this branch last sold the item
 }
 
 // StoreRow is one branch from a chain's Stores file.
@@ -148,11 +153,22 @@ func ParsePriceFile(r io.Reader) ([]Item, error) {
 			Price:    price,
 			Qty:      m["quantity"],
 			Unit:     m["unitofmeasure"],
-			Weighted: m["bisweighted"] == "1",
+			Weighted: m["bisweighted"] == "1" || m["blsweighted"] == "1", // Wolt writes a lower-case L
 			Maker:    maker,
+			UnitQty:  m["unitqty"],
+			Country:  m["manufacturecountry"],
+			Updated:  first(m["priceupdatetime"], m["priceupdatedate"]),
+			Sold:     m["lastsaledatetime"],
 		})
 	})
 	return items, err
+}
+
+func first(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // ParseStoresFile reads a chain's Stores file.
