@@ -24,6 +24,7 @@ export default function TabLayout() {
         tabBarBadge: n || undefined, tabBarBadgeStyle: { backgroundColor: t.tag, color: t.tagInk },
         tabBarIcon: ({ color, size }) => <Ionicons name="cart-outline" color={color as string} size={size} />,
       }} />
+      <Tabs.Screen name="more" options={{ title: "עוד", tabBarIcon: ({ color, size }) => <Ionicons name="ellipsis-horizontal-circle-outline" color={color as string} size={size} /> }} />
     </Tabs>
   );
 }

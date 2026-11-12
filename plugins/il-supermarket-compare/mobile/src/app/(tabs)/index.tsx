@@ -64,7 +64,6 @@ export default function Shop() {
           {q ? <Pressable onPress={() => setQ("")} accessibilityRole="button" accessibilityLabel="ניקוי החיפוש" hitSlop={10}><Ionicons name="close-circle" size={20} color={t.ink2} /></Pressable> : null}
         </View>
         <IconBtn icon="list" label="הדבקת רשימת קניות" onPress={() => router.push("/list")} />
-        <IconBtn icon="eye-outline" label="המעקב שלי" onPress={() => router.push("/watch")} />
         {canScan() ? <IconBtn icon="barcode-outline" label="סריקת ברקוד" onPress={() => router.push("/scan")} /> : null}
       </View>
 

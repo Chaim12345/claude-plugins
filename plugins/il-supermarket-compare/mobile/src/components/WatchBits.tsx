@@ -18,7 +18,7 @@ export function FollowButton({ code, name, compact }: { code: string; name: stri
     return (
       <Pressable onPress={() => toggleFollow(code)} hitSlop={8} accessibilityRole="button" accessibilityState={{ selected: on }}
         accessibilityLabel={on ? `הפסקת מעקב: ${name}` : `מעקב אחרי ${name}`}
-        style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: on ? t.brand : t.surface + "e6", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: on ? t.brand : t.line }}>
+        style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: on ? t.brand : "transparent", alignItems: "center", justifyContent: "center" }}>
         <Ionicons name={on ? "eye" : "eye-outline"} size={17} color={on ? t.brandInk : t.ink2} />
       </Pressable>
     );
