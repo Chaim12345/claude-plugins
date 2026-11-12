@@ -34,6 +34,7 @@ type server struct {
 	data string
 	dir  *core.Directory
 	geo  *core.Geocoder
+	api  *core.OpenAPI // nil without SALZOL_OSM_TOKEN
 	mu   sync.Mutex
 	jobs map[string]*job
 }
@@ -97,6 +98,10 @@ func (sv *server) get(id string) *job {
 
 func serve(ctx context.Context, addr, data, web string, defCfg core.Config, dir *core.Directory) {
 	sv := &server{data: data, dir: dir, geo: core.NewGeocoder(filepath.Join(data, "geocode.json")), jobs: map[string]*job{}}
+	if tok := apiToken(); tok != "" {
+		sv.api = core.NewOpenAPI(tok)
+		log.Printf("Open Israeli Supermarkets API: enabled")
+	}
 	defID := jobID(defCfg)
 	if _, err := os.Stat(filepath.Join(data, sv.catalogFile(defID))); err != nil {
 		sv.start(defCfg)
@@ -105,7 +110,7 @@ func serve(ctx context.Context, addr, data, web string, defCfg core.Config, dir 
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"ok": true, "sync": true, "location": len(dir.Stores) > 0, "defaultJob": defID})
+		writeJSON(w, map[string]any{"ok": true, "sync": true, "location": len(dir.Stores) > 0, "defaultJob": defID, "more": sv.api != nil})
 	})
 
 	// GET /api/geocode?q=הרצל 50, רמת גן
@@ -175,6 +180,50 @@ func serve(ctx context.Context, addr, data, web string, defCfg core.Config, dir 
 		writeJSON(w, j)
 	})
 
+	// GET /api/more?job=ID&lat=&lon=&radius=&codes=barcode,barcode
+	// Nearby branches of chains the job's catalog doesn't cover, priced through the Open Israeli
+	// Supermarkets API.
+	mux.HandleFunc("GET /api/more", func(w http.ResponseWriter, r *http.Request) {
+		if sv.api == nil {
+			http.Error(w, "the Open Israeli Supermarkets API is not configured (SALZOL_OSM_TOKEN)", 404)
+			return
+		}
+		lat, lon, radius, _, ok := pointArgs(r)
+		if !ok {
+			http.Error(w, "lat and lon are required", 400)
+			return
+		}
+		var codes []string
+		for _, c := range strings.Split(r.URL.Query().Get("codes"), ",") {
+			if c = strings.TrimSpace(c); len(c) >= 7 && len(c) <= 14 && strings.Trim(c, "0123456789") == "" {
+				codes = append(codes, c)
+			}
+		}
+		if len(codes) == 0 || len(codes) > 60 {
+			http.Error(w, "codes: 1 to 60 barcodes", 400)
+			return
+		}
+		skip := map[string]bool{}
+		if id := r.URL.Query().Get("job"); id != "" && !strings.ContainsAny(id, "/\\.") {
+			if c, err := core.LoadCatalogFile(filepath.Join(data, sv.catalogFile(id))); err == nil {
+				for _, s := range c.Stores {
+					if code, ok := core.ChainCodes[strings.SplitN(s.ID, ":", 2)[0]]; ok {
+						skip[code] = true
+					}
+				}
+			}
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+		defer cancel()
+		stores, err := core.NearbyExtra(ctx, sv.api, sv.geo, dir, codes, lat, lon, radius, skip)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			writeJSON(w, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"stores": stores, "source": "Open Israeli Supermarkets", "sourceUrl": "https://github.com/OpenIsraeliSupermarkets"})
+	})
+
 	// GET /data.json?job=ID  the catalog (default job without ?job)
 	mux.HandleFunc("GET /data.json", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Query().Get("job")
@@ -202,6 +251,24 @@ func serve(ctx context.Context, addr, data, web string, defCfg core.Config, dir 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+// apiToken reads the Open Israeli Supermarkets token from SALZOL_OSM_TOKEN, or the file named by
+// SALZOL_OSM_TOKEN_FILE (default ~/.config/salzol/osm-token). It is never logged.
+func apiToken() string {
+	if t := strings.TrimSpace(os.Getenv("SALZOL_OSM_TOKEN")); t != "" {
+		return t
+	}
+	f := os.Getenv("SALZOL_OSM_TOKEN_FILE")
+	if f == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			f = filepath.Join(home, ".config", "salzol", "osm-token")
+		}
+	}
+	if b, err := os.ReadFile(f); err == nil {
+		return strings.TrimSpace(string(b))
+	}
+	return ""
 }
 
 func pointArgs(r *http.Request) (lat, lon, radius float64, max int, ok bool) {

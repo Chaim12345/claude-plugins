@@ -423,7 +423,61 @@ button { cursor: pointer; }
       <h3 class="sec">איפה לקנות</h3>
       <ol class="rank">${rank}</ol>
       <div class="split">קנייה מפוצלת בין <b class="num">${c.used.size}</b> סניפים: <b class="num">${money(c.split)} ₪</b>${save > 0 ? ` · חוסך <b class="num">${money(save)} ₪</b>` : ""}</div>
+      <div id="moreBox"></div>
       <p class="fine">השוואה הוגנת על ${c.common.length} מתוך ${n} מוצרים שיש בכל הסניפים. מחירי מדף רגילים מקובצי המחירים הרשמיים של הרשתות (חוק המזון), ${fmtDate(S.D.priceDate)}. מבצעים ומחירי מועדון לא כלולים. מרחק בקו אווירי. ירקות, פירות ובשר מחושבים לק״ג.</p>`;
+    renderMore(c, act);
+  }
+
+  // ---------- more chains (Open Israeli Supermarkets API, via the server) ----------
+  // Branches of chains we can't download directly (Victory, Carrefour, Yellow...). The API's
+  // per-product coverage is partial, so these sit in their own list, compared item for item.
+  S.moreCache = {};
+  function renderMore(c, act) {
+    const box = $("#moreBox");
+    if (!box || !S.more || !S.loc) return;
+    const items = c.items.filter(([p]) => /^\d{7,14}$/.test(p.code));
+    if (!items.length) { box.innerHTML = ""; return; }
+    const codes = items.map(([p]) => p.code).sort();
+    const key = `${S.loc.lat},${S.loc.lon},${S.loc.radius},${S.job}|${codes.join(",")}`;
+    const data = S.moreCache[key];
+    if (!data) {
+      box.innerHTML = `<h3 class="sec">רשתות נוספות</h3><p class="fine">בודק את המוצרים ברשתות נוספות (ויקטורי, קרפור, יילו ועוד)…</p>`;
+      if (S.moreLoading === key) return;
+      clearTimeout(S.moreT);
+      S.moreT = setTimeout(() => {
+        S.moreLoading = key;
+        const q = `lat=${S.loc.lat}&lon=${S.loc.lon}&radius=${S.loc.radius}${S.job ? `&job=${encodeURIComponent(S.job)}` : ""}&codes=${codes.join(",")}`;
+        fetch(`api/more?${q}`).then(r => r.json()).catch(() => ({ error: "השרת לא עונה" }))
+          .then(d => { S.moreCache[key] = d; S.moreLoading = null; renderCart(); });
+      }, 700);
+      return;
+    }
+    if (data.error) { box.innerHTML = `<h3 class="sec">רשתות נוספות</h3><p class="fine">לא הצלחנו לבדוק רשתות נוספות: ${esc(data.error)}</p>`; return; }
+    const rows = (data.stores || []).map(s => {
+      const covered = items.filter(([p]) => s.prices[p.code] != null);
+      const total = covered.reduce((t, [p, q]) => t + s.prices[p.code] * q, 0);
+      // The best local branch on exactly the same items.
+      let local = null;
+      for (const i of act) {
+        if (!covered.every(([p]) => p.prices[i] != null)) continue;
+        const t = covered.reduce((x, [p, q]) => x + p.prices[i] * q, 0);
+        if (!local || t < local.t) local = { t, i };
+      }
+      const diff = local ? (total / local.t - 1) * 100 : null;
+      return { s, covered, total, local, diff };
+    }).sort((a, b) => (a.diff ?? 999) - (b.diff ?? 999));
+    if (!rows.length) {
+      box.innerHTML = `<h3 class="sec">רשתות נוספות</h3><p class="fine">לא מצאנו בטווח סניפים של רשתות נוספות עם מחירים לרוב המוצרים בסל.</p>`;
+      return;
+    }
+    box.innerHTML = `<h3 class="sec">רשתות נוספות</h3><ol class="rank">${rows.map(({ s, covered, total, local, diff }) => `
+      <li class="rk">
+        <span class="st">${esc(s.chain)}</span>
+        <span class="tot num">${money(total)} ₪</span>
+        <span class="ad">${esc(s.branch)} · <span class="num">${s.km.toFixed(1)}</span> ק״מ${s.approx ? "~" : ""} · ${covered.length} מתוך ${items.length} מוצרים</span>
+        ${local ? `<span class="pct ${diff <= 0 ? "best" : ""}">${diff <= 0 ? `${Math.abs(diff).toFixed(1)}% פחות מ${esc(S.D.stores[local.i].chain)}` : `+${diff.toFixed(1)}% לעומת ${esc(S.D.stores[local.i].chain)}`} על אותם מוצרים</span>` : ""}
+      </li>`).join("")}</ol>
+      <p class="fine">מקור: <a href="${esc(data.sourceUrl || "https://github.com/OpenIsraeliSupermarkets")}" target="_blank" rel="noopener">Open Israeli Supermarkets</a>. הכיסוי שם חלקי, ולכן הרשתות האלה לא נכללות בדירוג למעלה. נכללות רק רשתות שהנתונים שלהן עודכנו בשלושת הימים האחרונים.</p>`;
   }
 
   function fmtDate(iso) { const [y, m, d] = iso.split("-"); return `${+d}.${+m}.${y}`; }
@@ -583,7 +637,7 @@ button { cursor: pointer; }
   $("#locBtn").addEventListener("click", openLoc);
   fetch("api/health", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(h => {
     if (!h || !h.sync) return;
-    S.server = true; $("#sync").hidden = false; $("#syncbar").hidden = false;
+    S.server = true; S.more = !!h.more; $("#sync").hidden = false; $("#syncbar").hidden = false;
     if (h.location) {
       S.locMode = true; $("#locBtn").hidden = false; $("#area").hidden = true; $("#radius").hidden = true; S.radius = 99; showLoc();
     }
