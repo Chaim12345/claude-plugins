@@ -1,5 +1,6 @@
 import { useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
+import { MoreChains } from "../../components/MoreChains";
 import { Button, Num, ProductImage, Stepper, T, useTheme } from "../../components/ui";
 import { fmtDate, money, priceInfo, storeKm } from "../../lib/compare";
 import { useData } from "../../lib/store";
@@ -7,7 +8,7 @@ import { useData } from "../../lib/store";
 export default function CartScreen() {
   const t = useTheme();
   const router = useRouter();
-  const { catalog, comparison: c, active, setQty, clearCart } = useData();
+  const { catalog, comparison: c, active, setQty, clearCart, place } = useData();
 
   if (!catalog || !c || !c.items.length) {
     return (
@@ -47,6 +48,7 @@ export default function CartScreen() {
         <View style={{ backgroundColor: t.surface2, borderRadius: 12, padding: 12 }}>
           <T>קנייה מפוצלת בין {c.splitStores} סניפים: <Text style={{ fontWeight: "800" }}>{money(c.split)} ₪</Text>{save > 0 ? <Text> · חוסך <Text style={{ fontWeight: "800" }}>{money(save)} ₪</Text></Text> : null}</T>
         </View>
+        <MoreChains catalog={catalog} comparison={c} active={active} place={place} />
       </Section>
 
       <Section title={`הפריטים (${c.items.length})`}>

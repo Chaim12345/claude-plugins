@@ -4,7 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { Platform } from "react-native";
 import Native from "../../modules/salzol-native";
-import type { Catalog, NearStore, Place, SyncEvent } from "./types";
+import type { Catalog, MoreResult, NearStore, Place, SyncEvent } from "./types";
 
 export interface Engine {
   kind: "device" | "server";
@@ -16,6 +16,8 @@ export interface Engine {
   imageUrl(code: string): string | null;
   /** A second photo source when imageUrl fails (Open Food Facts via the Go core), or null. */
   fallbackImage(code: string): Promise<string | null>;
+  /** Branches of other chains for these barcodes (server only, when it has an API token); null when unavailable. */
+  more(place: Place, barcodes: string[]): Promise<MoreResult | null>;
 }
 
 /** Base URL of a salzol server: same origin on web, else EXPO_PUBLIC_SALZOL_URL (e.g. http://192.168.1.5:8080). */
@@ -65,6 +67,7 @@ function deviceEngine(): Engine {
       const u = await m.resolveImage(code).catch(() => "");
       return u && !u.includes("rami-levy") ? u : null;
     },
+    more: async () => null, // needs the API token, which stays on a server
   };
 }
 
@@ -110,6 +113,13 @@ function serverEngine(): Engine {
     },
     imageUrl: code => `${base}/img/${encodeURIComponent(code)}`,
     fallbackImage: async () => null, // the server already tried every source
+    async more(place, barcodes) {
+      const health = await fetch(`${base}/api/health`).then(r => r.json()).catch(() => null);
+      if (!health?.more) return null;
+      const q = `lat=${place.lat}&lon=${place.lon}&radius=${place.radius}${(await loadJob()) ? `&job=${job}` : ""}&codes=${barcodes.join(",")}`;
+      const r = await fetch(`${base}/api/more?${q}`);
+      return (await r.json().catch(() => ({ error: `HTTP ${r.status}` }))) as MoreResult;
+    },
   };
 }
 

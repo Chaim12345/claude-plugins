@@ -48,3 +48,7 @@ export type Place = { place: string; lat: number; lon: number; radius: number; t
 export type NearStore = { c: string; id: string; b: string; n: string; a: string; city: string; lat: number; lon: number; approx?: boolean; km: number };
 
 export type SyncEvent = { phase: string; store?: string; file?: string; bytes?: number; items?: number; message?: string; ms?: number };
+
+// A nearby branch of a chain the catalog doesn't cover, priced through the Open Israeli Supermarkets API.
+export type ExtraStore = { chain: string; chainCode: string; branch: string; city: string; km: number; approx: boolean; prices: Record<string, number>; onSale?: string[]; chainSeen: string };
+export type MoreResult = { stores: ExtraStore[]; sourceUrl?: string } | { error: string };
