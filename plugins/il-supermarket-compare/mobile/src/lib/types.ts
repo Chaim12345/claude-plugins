@@ -10,7 +10,14 @@ export type Store = {
   approx: boolean;
   file?: string;
   fileTime?: string; // YYYYMMDDhhmm of the price file
+  promoFile?: string; // the PromoFull file the promos came from
 };
+
+// A normalized promotion (core/promo.go). value is agorot per unit (price), agorot for minQty units (bundle)
+// or the percent off (percent). end is YYYYMMDDhhmm local time; missing = open-ended.
+export type PromoKind = "price" | "bundle" | "percent";
+export type Promo = { id: string; codes: string[]; minQty: number; kind: PromoKind; value: number; club: boolean; desc: string; max?: number; end?: string };
+export type PromoStats = { parsed: number; modeled: number; applied: number; skipped: Record<string, number> };
 
 export type Area = { name: string; lat: number; lon: number };
 export type Category = { id: string; name: string };
@@ -27,6 +34,8 @@ export type Catalog = {
   categories: Category[];
   products: RawProduct[];
   imageSources?: string[];
+  promos?: Promo[][]; // per store index; absent in catalogs from before promotions
+  promoStats?: PromoStats[];
 };
 
 export type Product = {

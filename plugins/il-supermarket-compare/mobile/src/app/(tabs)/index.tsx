@@ -2,8 +2,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { memo, useDeferredValue, useMemo, useState } from "react";
 import { FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
-import { Button, IconBtn, Num, PriceTag, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
-import { search, storeKm, type PriceInfo, type Sort } from "../../lib/compare";
+import { Button, DealBadge, IconBtn, Num, PriceTag, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
+import { bestDeal, dealText, search, storeKm, type BestDeal, type PriceInfo, type Sort } from "../../lib/compare";
 import { useData } from "../../lib/store";
 import type { Catalog, Product } from "../../lib/types";
 
@@ -15,7 +15,7 @@ export default function Shop() {
   const t = useTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { catalog, products, active, cart, setQty, toggleStore, place, ready, sync } = useData();
+  const { catalog, products, active, cart, setQty, toggleStore, place, ready, sync, deals } = useData();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("all");
   const [sort, setSort] = useState<Sort>("pop");
@@ -76,16 +76,19 @@ export default function Shop() {
         </View>
       }
       ListEmptyComponent={<T style={{ color: t.ink2, textAlign: "center", padding: 30 }}>לא מצאנו מוצר כזה. נסו מילה קצרה יותר, למשל ״קוטג״.</T>}
-      renderItem={({ item: [p, pi] }) => (
-        <View style={{ flex: 1 / cols }}>
-          <Card p={p} pi={pi} chain={catalog.stores[pi.at]?.chain ?? ""} qty={cart[p.code] ?? 0} setQty={setQty} open={() => router.push(`/product/${encodeURIComponent(p.code)}`)} />
-        </View>
-      )}
+      renderItem={({ item: [p, pi] }) => {
+        const deal = bestDeal(p, active, deals);
+        return (
+          <View style={{ flex: 1 / cols }}>
+            <Card p={p} pi={pi} deal={deal} dealChain={deal ? catalog.stores[deal.i].chain : ""} chain={catalog.stores[pi.at]?.chain ?? ""} qty={cart[p.code] ?? 0} setQty={setQty} open={() => router.push(`/product/${encodeURIComponent(p.code)}`)} />
+          </View>
+        );
+      }}
     />
   );
 }
 
-const Card = memo(function Card({ p, pi, chain, qty, setQty, open }: { p: Product; pi: PriceInfo; chain: string; qty: number; setQty: (c: string, q: number) => void; open: () => void }) {
+const Card = memo(function Card({ p, pi, deal, dealChain, chain, qty, setQty, open }: { p: Product; pi: PriceInfo; deal: BestDeal | null; dealChain: string; chain: string; qty: number; setQty: (c: string, q: number) => void; open: () => void }) {
   const t = useTheme();
   const gap = pi.hi! > pi.lo! ? Math.round((pi.hi! / pi.lo! - 1) * 100) : 0;
   return (
@@ -101,6 +104,12 @@ const Card = memo(function Card({ p, pi, chain, qty, setQty, open }: { p: Produc
           <Text numberOfLines={1} style={{ fontSize: 12.5, fontWeight: "700", color: t.ink }}>{chain}</Text>
         </View>
       </View>
+      {deal ? (
+        <View style={{ gap: 2 }}>
+          <DealBadge text={dealText(deal.promo)} club={deal.promo.club} />
+          <T numberOfLines={1} style={{ fontSize: 11.5, color: t.ink2 }}>{deal.promo.desc} · {dealChain}</T>
+        </View>
+      ) : null}
       <T style={{ fontSize: 12, color: t.ink2 }}>{pi.n} סניפים{gap ? <Text> · עד <Text style={{ color: t.warn, fontWeight: "700" }}>+{gap}%</Text> במקום יקר</Text> : " · אותו מחיר"}</T>
       {qty ? <Stepper p={p} qty={qty} onChange={q => setQty(p.code, q)} /> : <Button title="הוספה לסל" onPress={() => setQty(p.code, 1)} style={{ height: 40 }} />}
     </View>

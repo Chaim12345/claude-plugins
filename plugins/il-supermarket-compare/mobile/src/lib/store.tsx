@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { compare, toProducts, type Comparison } from "./compare";
+import { compare, makeDeals, toProducts, type ClubPrefs, type Comparison, type Deals } from "./compare";
 import { addedCount, discoverLine, isDiscovering, nextNote, shouldCheckDiscovery, type DiscoverResult } from "./discover";
 import { engine } from "./engine";
 import { cleanName, mergeCarts, newId, uniqueName, type SavedList } from "./saved";
@@ -19,6 +19,8 @@ type Ctx = {
   place: Place | null;
   sync: SyncState;
   comparison: Comparison | null;
+  deals: Deals | undefined; // promotions and club prices; undefined for catalogs without them
+  club: ClubPrefs; // chains whose club prices the user can get
   ready: boolean; // finished reading saved state
   setQty(code: string, qty: number): void;
   addMany(items: Cart): void; // adds quantities to what is already in the cart
@@ -29,13 +31,15 @@ type Ctx = {
   deleteSaved(id: string): void;
   clearCart(): void;
   toggleStore(id: string): void;
+  setClub(chain: string, on: boolean): void;
+  setClubAll(chains: string[], on: boolean): void;
   choosePlace(p: Place): void;
   runSync(): void;
 };
 
 const C = createContext<Ctx | null>(null);
 
-const KEY = { cart: "salzol:cart", place: "salzol:place", off: "salzol:off", saved: "salzol:saved" };
+const KEY = { cart: "salzol:cart", place: "salzol:place", off: "salzol:off", saved: "salzol:saved", club: "salzol:club" };
 
 async function load<T>(k: string, d: T): Promise<T> {
   try {
@@ -53,6 +57,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [place, setPlace] = useState<Place | null>(null);
   const [off, setOff] = useState<string[]>([]);
   const [saved, setSaved] = useState<SavedList[]>([]);
+  const [club, setClubState] = useState<ClubPrefs>({});
   const [sync, setSync] = useState<SyncState>({ running: false, events: [], error: null });
   const [ready, setReady] = useState(false);
   const busy = useRef(false);
@@ -109,8 +114,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // Start-up: saved state first, then the last catalog, then a refresh (fast when nothing is new).
   useEffect(() => {
     (async () => {
-      const [c, p, o, sv] = await Promise.all([load<Cart>(KEY.cart, {}), load<Place | null>(KEY.place, null), load<string[]>(KEY.off, []), load<SavedList[]>(KEY.saved, [])]);
-      setCart(c); setPlace(p); setOff(o); setSaved(Array.isArray(sv) ? sv : []);
+      const [c, p, o, sv, cl] = await Promise.all([load<Cart>(KEY.cart, {}), load<Place | null>(KEY.place, null), load<string[]>(KEY.off, []), load<SavedList[]>(KEY.saved, []), load<ClubPrefs>(KEY.club, {})]);
+      setCart(c); setPlace(p); setOff(o); setSaved(Array.isArray(sv) ? sv : []); setClubState(cl);
       const cached = await engine.cached(p).catch(() => null);
       if (cached) setCatalog(cached);
       setReady(true);
@@ -120,10 +125,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const products = useMemo(() => (catalog ? toProducts(catalog) : new Map<string, Product>()), [catalog]);
   const active = useMemo(() => (catalog ? catalog.stores.map((_, i) => i).filter(i => !off.includes(catalog.stores[i].id)) : []), [catalog, off]);
-  const comparison = useMemo(() => (catalog && Object.keys(cart).length ? compare(products, cart, active) : null), [catalog, products, cart, active]);
+  const deals = useMemo(() => (catalog?.promos ? makeDeals(catalog, club) : undefined), [catalog, club]);
+  const comparison = useMemo(() => (catalog && Object.keys(cart).length ? compare(products, cart, active, deals) : null), [catalog, products, cart, active, deals]);
 
   const value: Ctx = {
-    catalog, products, active, cart, place, sync, comparison, ready, saved,
+    catalog, products, active, cart, place, sync, comparison, deals, club, ready, saved,
     addMany(items) {
       setCart(prev => {
         const next = mergeCarts(prev, items);
@@ -171,6 +177,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setOff(prev => {
         const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
         save(KEY.off, next);
+        return next;
+      });
+    },
+    setClub(chain, on) {
+      setClubState(prev => {
+        const next = { ...prev, [chain]: on };
+        save(KEY.club, next);
+        return next;
+      });
+    },
+    setClubAll(chains, on) {
+      setClubState(prev => {
+        const next = { ...prev };
+        for (const c of chains) next[c] = on;
+        save(KEY.club, next);
         return next;
       });
     },

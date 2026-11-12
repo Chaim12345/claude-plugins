@@ -47,6 +47,18 @@ export function PriceTag({ agorot, big }: { agorot: number; big?: boolean }) {
   );
 }
 
+/** Yellow "מבצע" tag with the deal's terms. */
+export function DealBadge({ text, club }: { text: string; club?: boolean }) {
+  const t = useTheme();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", backgroundColor: t.bad + "1f", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 }}>
+      <Text style={{ color: t.bad, fontWeight: "800", fontSize: 11.5 }}>מבצע</Text>
+      <Text style={{ color: t.bad, fontWeight: "700", fontSize: 11.5, writingDirection: "rtl" }}>{text}</Text>
+      {club ? <Text style={{ color: t.bad, fontSize: 10.5, fontWeight: "700" }}>· מועדון</Text> : null}
+    </View>
+  );
+}
+
 export function Button({ title, onPress, kind = "primary", disabled, style, icon }: { title: string; onPress: () => void; kind?: "primary" | "ghost"; disabled?: boolean; style?: StyleProp<ViewStyle>; icon?: ReactNode }) {
   const t = useTheme();
   const primary = kind === "primary";

@@ -4,8 +4,8 @@ package core
 //
 // Derived from israeli-supermarket-scarpers by Sefi Erlich
 // (https://github.com/OpenIsraeliSupermarkets/israeli-supermarket-scarpers), used under its
-// non-commercial license. Changes: rewritten in Go; one store's newest PriceFull and the chain's
-// Stores file only (no Promo files, no history); download URLs and chain IDs taken from the
+// non-commercial license. Changes: rewritten in Go; one store's newest PriceFull and PromoFull
+// and the chain's Stores file only (no history); download URLs and chain IDs taken from the
 // original, listing and parsing reimplemented. Commercial use needs the original author's written
 // permission. See THIRD_PARTY.md.
 
@@ -152,13 +152,22 @@ func (b *bina) Stores(ctx context.Context) ([]StoreRow, error) {
 }
 
 func (b *bina) LatestPriceFull(ctx context.Context, storeID string) (FileRef, error) {
-	l, err := b.list(ctx, "4", "")
+	return b.latest(ctx, "4", "PriceFull", storeID)
+}
+
+// LatestPromoFull: Bina's WFileType 5 is PromoFull.
+func (b *bina) LatestPromoFull(ctx context.Context, storeID string) (FileRef, error) {
+	return b.latest(ctx, "5", "PromoFull", storeID)
+}
+
+func (b *bina) latest(ctx context.Context, fileType, kind, storeID string) (FileRef, error) {
+	l, err := b.list(ctx, fileType, "")
 	if err != nil {
 		return FileRef{}, err
 	}
 	var mine []FileRef
 	for _, f := range l {
-		if hasPrefixFold(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
+		if hasPrefixFold(f.Name, kind) && strings.Contains(f.Name, storeTag(storeID)) {
 			mine = append(mine, f)
 		}
 	}
@@ -261,13 +270,21 @@ func (p *publishPrice) Stores(ctx context.Context) ([]StoreRow, error) {
 }
 
 func (p *publishPrice) LatestPriceFull(ctx context.Context, storeID string) (FileRef, error) {
+	return p.latest(ctx, "PriceFull", storeID)
+}
+
+func (p *publishPrice) LatestPromoFull(ctx context.Context, storeID string) (FileRef, error) {
+	return p.latest(ctx, "PromoFull", storeID)
+}
+
+func (p *publishPrice) latest(ctx context.Context, kind, storeID string) (FileRef, error) {
 	idx, err := p.index(ctx)
 	if err != nil {
 		return FileRef{}, err
 	}
 	var mine []FileRef
 	for _, f := range idx {
-		if hasPrefixFold(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
+		if hasPrefixFold(f.Name, kind) && strings.Contains(f.Name, storeTag(storeID)) {
 			mine = append(mine, f)
 		}
 	}
@@ -351,13 +368,21 @@ func (l *laibcatalog) Stores(ctx context.Context) ([]StoreRow, error) {
 }
 
 func (l *laibcatalog) LatestPriceFull(ctx context.Context, storeID string) (FileRef, error) {
+	return l.latest(ctx, "PriceFull", storeID)
+}
+
+func (l *laibcatalog) LatestPromoFull(ctx context.Context, storeID string) (FileRef, error) {
+	return l.latest(ctx, "PromoFull", storeID)
+}
+
+func (l *laibcatalog) latest(ctx context.Context, kind, storeID string) (FileRef, error) {
 	fs, err := l.list(ctx)
 	if err != nil {
 		return FileRef{}, err
 	}
 	var mine []FileRef
 	for _, f := range fs {
-		if hasPrefixFold(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
+		if hasPrefixFold(f.Name, kind) && strings.Contains(f.Name, storeTag(storeID)) {
 			mine = append(mine, f)
 		}
 	}
@@ -432,13 +457,21 @@ func (w *wolt) Stores(ctx context.Context) ([]StoreRow, error) {
 }
 
 func (w *wolt) LatestPriceFull(ctx context.Context, storeID string) (FileRef, error) {
+	return w.latest(ctx, "PriceFull", storeID)
+}
+
+func (w *wolt) LatestPromoFull(ctx context.Context, storeID string) (FileRef, error) {
+	return w.latest(ctx, "PromoFull", storeID)
+}
+
+func (w *wolt) latest(ctx context.Context, kind, storeID string) (FileRef, error) {
 	fs, err := w.list(ctx)
 	if err != nil {
 		return FileRef{}, err
 	}
 	var mine []FileRef
 	for _, f := range fs {
-		if hasPrefixFold(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
+		if hasPrefixFold(f.Name, kind) && strings.Contains(f.Name, storeTag(storeID)) {
 			mine = append(mine, f)
 		}
 	}
@@ -568,16 +601,26 @@ func (h *haziHinam) Stores(ctx context.Context) ([]StoreRow, error) {
 }
 
 func (h *haziHinam) LatestPriceFull(ctx context.Context, storeID string) (FileRef, error) {
+	return h.latest(ctx, "1", "PriceFull", storeID)
+}
+
+func (h *haziHinam) LatestPromoFull(ctx context.Context, storeID string) (FileRef, error) {
+	return h.latest(ctx, "2", "PromoFull", storeID)
+}
+
+// latest finds a store's newest file of a kind; listType is the site's t= filter
+// (1 Price/PriceFull, 2 Promo/PromoFull, 3 Stores). Today first, then yesterday.
+func (h *haziHinam) latest(ctx context.Context, listType, kind, storeID string) (FileRef, error) {
 	var lastErr error
 	for _, day := range haziDays() {
-		fs, err := h.list(ctx, "1", day)
+		fs, err := h.list(ctx, listType, day)
 		if err != nil {
 			lastErr = err
 			continue
 		}
 		var mine []FileRef
 		for _, f := range fs {
-			if hasPrefixFold(f.Name, "PriceFull") && strings.Contains(f.Name, storeTag(storeID)) {
+			if hasPrefixFold(f.Name, kind) && strings.Contains(f.Name, storeTag(storeID)) {
 				mine = append(mine, f)
 			}
 		}

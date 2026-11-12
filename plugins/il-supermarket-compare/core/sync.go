@@ -32,7 +32,7 @@ type Config struct {
 	MinStores int        `json:"min_stores"`
 }
 
-// Event reports sync progress. Phase: "check", "download", "cached", "parse", "skip", "build", "done".
+// Event reports sync progress. Phase: "check", "download", "cached", "parse", "skip", "promo-parse", "promo-skip", "build", "done".
 type Event struct {
 	Phase   string `json:"phase"`
 	Store   string `json:"store,omitempty"`
@@ -90,7 +90,15 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 					results[i].err = err
 					continue
 				}
-				results[i].path, results[i].file, results[i].err = s.fetch(ctx, portal, cfg.Stores[i], raw)
+				results[i].path, results[i].file, results[i].err = s.fetch(ctx, portal, cfg.Stores[i], raw, "PriceFull", portal.LatestPriceFull)
+				if results[i].err == nil {
+					// A missing or broken promo file only means no deals for this store.
+					var perr error
+					results[i].promoPath, results[i].promoFile, perr = s.fetch(ctx, portal, cfg.Stores[i], raw, "PromoFull", portal.LatestPromoFull)
+					if perr != nil {
+						s.emit(Event{Phase: "promo-skip", Store: cfg.Stores[i].key(), Message: perr.Error()})
+					}
+				}
 			}
 		}(chain, idxs)
 	}
@@ -125,7 +133,14 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 				items, err = ParsePriceFile(f)
 				f.Close()
 				if err == nil {
-					data[i] = &StoreData{Store: st.toStore(r.file), Items: items}
+					sd := &StoreData{Store: st.toStore(r.file), Items: items}
+					if r.promoPath != "" {
+						sd.Promos = s.parsePromos(r.promoPath, st)
+						if sd.Promos != nil {
+							sd.Store.PromoFile = r.promoFile
+						}
+					}
+					data[i] = sd
 					s.emit(Event{Phase: "parse", Store: st.key(), Items: len(items), Millis: time.Since(t).Milliseconds()})
 					return
 				}
@@ -161,6 +176,7 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 		Products:    products,
 		Images:      ImageSources,
 	}
+	cat.Promos, cat.PromoStats = BuildPromos(stores, products)
 	if cat.Skipped == nil {
 		cat.Skipped = []string{}
 	}
@@ -176,10 +192,27 @@ func (s *Syncer) Sync(ctx context.Context, cfg Config) (*Catalog, error) {
 	return cat, nil
 }
 
+// parsePromos reads a downloaded PromoFull file; a corrupt one is deleted and ignored.
+func (s *Syncer) parsePromos(path string, st StoreRef) *PromoFile {
+	f, err := os.Open(path)
+	if err == nil {
+		var pf *PromoFile
+		pf, err = ParsePromoFile(f)
+		f.Close()
+		if err == nil {
+			s.emit(Event{Phase: "promo-parse", Store: st.key(), Items: len(pf.Promos)})
+			return pf
+		}
+	}
+	s.emit(Event{Phase: "promo-skip", Store: st.key(), Message: err.Error()})
+	os.Remove(path)
+	return nil
+}
+
 // fetch returns the local path of the store's newest PriceFull, downloading it only if it's new.
-func (s *Syncer) fetch(ctx context.Context, p Portal, st StoreRef, raw string) (string, string, error) {
+func (s *Syncer) fetch(ctx context.Context, p Portal, st StoreRef, raw, kind string, latest func(context.Context, string) (FileRef, error)) (string, string, error) {
 	s.emit(Event{Phase: "check", Store: st.key()})
-	f, err := p.LatestPriceFull(ctx, st.StoreID)
+	f, err := latest(ctx, st.StoreID)
 	if err != nil {
 		return "", "", err
 	}
@@ -215,16 +248,16 @@ func (s *Syncer) fetch(ctx context.Context, p Portal, st StoreRef, raw string) (
 		return "", "", err
 	}
 	s.emit(Event{Phase: "download", Store: st.key(), File: f.Name, Bytes: n, Millis: time.Since(t).Milliseconds()})
-	pruneOld(raw, st.Chain+"_", storeTag(st.StoreID), dst)
+	pruneOld(raw, st.Chain+"_", storeTag(st.StoreID), kind, dst)
 	return dst, f.Name, nil
 }
 
-// pruneOld deletes this store's older downloads so the phone doesn't fill up.
-func pruneOld(dir, prefix, tag, keep string) {
+// pruneOld deletes this store's older downloads of one kind (PriceFull or PromoFull) so the phone doesn't fill up.
+func pruneOld(dir, prefix, tag, kind, keep string) {
 	ents, _ := os.ReadDir(dir)
 	for _, e := range ents {
 		p := filepath.Join(dir, e.Name())
-		if p != keep && strings.HasPrefix(e.Name(), prefix) && strings.Contains(e.Name(), tag) && strings.Contains(e.Name(), "PriceFull") {
+		if p != keep && strings.HasPrefix(e.Name(), prefix) && strings.Contains(e.Name(), tag) && strings.Contains(e.Name(), kind) {
 			os.Remove(p)
 		}
 	}
@@ -245,6 +278,8 @@ func (st StoreRef) key() string { return st.Chain + ":" + st.StoreID }
 type result struct {
 	path, file string
 	err        error
+	promoPath  string // "" = the store has no PromoFull file (never an error)
+	promoFile  string
 }
 
 func unchanged(prev *Catalog, cfg Config, results []result) bool {
@@ -252,7 +287,7 @@ func unchanged(prev *Catalog, cfg Config, results []result) bool {
 		return false
 	}
 	for i, r := range results {
-		if r.err != nil || prev.Stores[i].ID != cfg.Stores[i].key() || prev.Stores[i].File != r.file {
+		if r.err != nil || prev.Stores[i].ID != cfg.Stores[i].key() || prev.Stores[i].File != r.file || prev.Stores[i].PromoFile != r.promoFile {
 			return false
 		}
 	}

@@ -53,6 +53,8 @@ type FileRef struct {
 type Portal interface {
 	Stores(ctx context.Context) ([]StoreRow, error)
 	LatestPriceFull(ctx context.Context, storeID string) (FileRef, error)
+	// LatestPromoFull finds the store's newest PromoFull file. ErrNotPublished means it has none.
+	LatestPromoFull(ctx context.Context, storeID string) (FileRef, error)
 	Open(ctx context.Context, f FileRef) (io.ReadCloser, error)
 }
 
@@ -192,13 +194,22 @@ func (s *shufersal) Stores(ctx context.Context) ([]StoreRow, error) {
 }
 
 func (s *shufersal) LatestPriceFull(ctx context.Context, storeID string) (FileRef, error) {
-	l, err := s.links(ctx, "2", storeID)
+	return s.latest(ctx, "2", "PriceFull", storeID)
+}
+
+// LatestPromoFull: Shufersal's category 4 is PromoFull (3 is the intraday Promo).
+func (s *shufersal) LatestPromoFull(ctx context.Context, storeID string) (FileRef, error) {
+	return s.latest(ctx, "4", "PromoFull", storeID)
+}
+
+func (s *shufersal) latest(ctx context.Context, cat, prefix, storeID string) (FileRef, error) {
+	l, err := s.links(ctx, cat, storeID)
 	if err != nil {
 		return FileRef{}, err
 	}
 	var full []FileRef
 	for _, f := range l {
-		if strings.HasPrefix(f.Name, "PriceFull") {
+		if strings.HasPrefix(f.Name, prefix) {
 			full = append(full, f)
 		}
 	}
@@ -321,14 +332,22 @@ func (p *publishedPrices) Stores(ctx context.Context) ([]StoreRow, error) {
 }
 
 func (p *publishedPrices) LatestPriceFull(ctx context.Context, storeID string) (FileRef, error) {
-	l, err := p.list(ctx, "PriceFull")
+	return p.latest(ctx, "PriceFull", storeID)
+}
+
+func (p *publishedPrices) LatestPromoFull(ctx context.Context, storeID string) (FileRef, error) {
+	return p.latest(ctx, "PromoFull", storeID)
+}
+
+func (p *publishedPrices) latest(ctx context.Context, kind, storeID string) (FileRef, error) {
+	l, err := p.list(ctx, kind)
 	if err != nil {
 		return FileRef{}, err
 	}
 	tag := storeTag(storeID)
 	var mine []FileRef
 	for _, f := range l {
-		if strings.Contains(f.Name, tag) {
+		if strings.Contains(f.Name, tag) && strings.Contains(strings.ToLower(f.Name), strings.ToLower(kind)) {
 			mine = append(mine, f)
 		}
 	}

@@ -127,6 +127,17 @@ button { cursor: pointer; }
 .tag small { font-size: 12px; font-weight: 700; }
 .at { font-size: 12.5px; color: var(--ink-2); line-height: 1.25; text-align: left; min-width: 0; }
 .at b { color: var(--ink); font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.deal { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 5px; font-size: 11.5px; font-weight: 700; color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, var(--surface)); border-radius: 6px; padding: 1px 6px; width: max-content; max-width: 100%; }
+.deal b { font-weight: 800; }
+.dealdesc { font-size: 11.5px; color: var(--ink-2); font-weight: 400; display: block; }
+.dealnote { font-size: 12.5px; color: var(--ink-2); grid-column: 1 / -1; }
+.dealnote b { color: var(--bad); }
+.line .sv { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: 12px; color: var(--bad); font-weight: 700; }
+.club { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 8px; display: grid; gap: 8px; }
+.club label { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.club .chains { display: flex; flex-wrap: wrap; gap: 6px; }
+.club .chains label { font-weight: 600; font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }
+.club .chains label:has(input:checked) { border-color: var(--brand); background: var(--brand-soft); }
 .spread { font-size: 12.5px; color: var(--ink-2); }
 .spread .hi { color: var(--warn); font-weight: 700; }
 .add { height: 40px; border-radius: 12px; border: 0; background: var(--brand); color: var(--brand-ink); font-weight: 700; }
@@ -266,7 +277,7 @@ button { cursor: pointer; }
     set(k, v) { try { localStorage.setItem("salzol:" + k, JSON.stringify(v)); } catch {} },
   };
 
-  const S = { server: false, locMode: false, loc: null, job: null, syncing: false, D: null, byId: new Map(), q: "", cat: "all", sort: "pop", shown: 48, cart: {}, example: false, area: 0, radius: 99, off: new Set() };
+  const S = { server: false, locMode: false, loc: null, job: null, syncing: false, D: null, byId: new Map(), q: "", cat: "all", sort: "pop", shown: 48, cart: {}, example: false, area: 0, radius: 99, off: new Set(), club: {}, deals: [] };
 
   function norm(s) { return s.replace(/["'׳״`]/g, "").replace(/\s+/g, " ").trim().toLowerCase(); }
   function km(a, b) {
@@ -298,6 +309,8 @@ button { cursor: pointer; }
     S.area = store.get("area", 0) < D.areas.length ? store.get("area", 0) : 0;
     S.radius = S.locMode ? 99 : store.get("radius", 99); // with a location, the server already picked stores by radius
     S.off = new Set(store.get("off", []));
+    S.club = store.get("club", {}) || {};
+    buildDeals();
     const saved = store.get("cart", null);
     if (saved && typeof saved === "object") { S.cart = saved; S.example = store.get("example", false); }
     else { S.cart = { ...EXAMPLE }; S.example = true; }
@@ -308,6 +321,61 @@ button { cursor: pointer; }
     $("#radius").value = String(S.radius);
     $("#cats").innerHTML = `<button class="cat" data-cat="all">הכל</button>` + D.categories.map(c => `<button class="cat" data-cat="${c.id}">${esc(c.name)}</button>`).join("");
     renderAll();
+  }
+
+  // ---------- promotions ----------
+  // D.promos[i] lists store i's deals: {id, codes, minQty, kind: price|bundle|percent, value, club, desc, max?, end?}.
+  // price: agorot per unit; bundle: agorot for minQty units; percent: percent off. end is YYYYMMDDhhmm, local time.
+  const chainKey = id => id.split(":")[0];
+  function buildDeals() {
+    S.deals = S.D.stores.map((_, i) => {
+      const m = new Map();
+      for (const pr of (S.D.promos && S.D.promos[i]) || []) for (const c of pr.codes) { const l = m.get(c); if (l) l.push(pr); else m.set(c, [pr]); }
+      return m;
+    });
+  }
+  function stampMs(s) { return s && /^\d{12}/.test(s) ? new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(8, 10), +s.slice(10, 12)).getTime() : null; }
+  const hasClub = i => !!S.club[chainKey(S.D.stores[i].id)];
+  function shownPromos(i, code) { // not ended; club deals included
+    const l = S.deals[i] && S.deals[i].get(code); if (!l) return [];
+    const now = Date.now();
+    return l.filter(pr => { const e = stampMs(pr.end); return e == null || e >= now; });
+  }
+  const livePromos = (i, code) => shownPromos(i, code).filter(pr => !pr.club || hasClub(i));
+  function promoCost(pr, unit, q) {
+    const cap = pr.max > 0 ? Math.min(q, pr.max) : q, rest = (q - cap) * unit;
+    if (pr.kind === "price") return rest + cap * pr.value;
+    if (pr.kind === "percent") return rest + cap * unit * (1 - pr.value / 100);
+    const n = Math.floor(cap / pr.minQty);
+    return rest + n * pr.value + (cap - n * pr.minQty) * unit;
+  }
+  // The cheapest way to buy q units at store i: the best usable deal or the shelf price. null = not sold.
+  function priceAt(p, i, q) {
+    const unit = p.prices[i]; if (unit == null) return null;
+    const best = { cost: unit * q, shelf: unit * q, promo: null };
+    if (p.w) return best; // fresh items are matched by name, deals by barcode
+    for (const pr of livePromos(i, p.code)) { const c = promoCost(pr, unit, q); if (c < best.cost - 1e-9) { best.cost = c; best.promo = pr; } }
+    return best;
+  }
+  const dealUnit = (pr, shelf) => pr.kind === "price" ? pr.value : pr.kind === "percent" ? shelf * (1 - pr.value / 100) : pr.value / pr.minQty;
+  const dealText = pr => pr.kind === "bundle" ? `${pr.minQty} ב־${money(pr.value)} ₪` : pr.kind === "price" ? `${money(pr.value)} ₪` : `${+pr.value.toFixed(1)}% הנחה`;
+  function bestDeal(p, act) { // lowest effective unit price among the active stores
+    if (p.w) return null;
+    let best = null;
+    for (const i of act) {
+      const shelf = p.prices[i]; if (shelf == null) continue;
+      for (const pr of livePromos(i, p.code)) { const u = dealUnit(pr, shelf); if (u < shelf && (!best || u < best.unit)) best = { i, pr, unit: u }; }
+    }
+    return best;
+  }
+  const dealBadge = (pr) => `<span class="deal"><b>מבצע</b> ${esc(dealText(pr))}${pr.club ? " · מועדון" : ""}</span>`;
+  function clubChains() {
+    const out = new Map();
+    S.D.stores.forEach((s, i) => {
+      if (!((S.D.promos && S.D.promos[i]) || []).some(pr => pr.club)) return;
+      const k = chainKey(s.id); if (!out.has(k)) out.set(k, k === "shufersal" ? "שופרסל" : s.chain);
+    });
+    return [...out];
   }
 
   // ---------- shop ----------
@@ -347,6 +415,7 @@ button { cursor: pointer; }
       <button class="thumb" style="background:color-mix(in srgb, ${tint} 38%, var(--surface))" data-open="${esc(p.code)}" aria-label="מחירים בכל הסניפים: ${esc(p.name)}"><span>${esc(mono)}</span>${S.server && p.img ? `<img src="img/${encodeURIComponent(p.img)}" alt="" loading="lazy" onerror="this.remove()">` : ""}${p.w ? `<em class="kg">לק״ג</em>` : ""}</button>
       <button class="pname" data-open="${esc(p.code)}">${esc(p.name)}</button>
       <div class="tagrow"><span class="tag num">${money(pi.lo)}<small> ₪</small></span><span class="at">הכי זול ב<b>${esc(S.D.stores[pi.at].chain)}</b></span></div>
+      ${(() => { const bd = bestDeal(p, active()); return bd ? `<div>${dealBadge(bd.pr)}<span class="dealdesc">${esc(bd.pr.desc)} · ${esc(S.D.stores[bd.i].chain)}</span></div>` : ""; })()}
       <div class="spread">${pi.n} סניפים${gap ? ` · עד <span class="hi num">+${gap}%</span> במקום יקר` : " · אותו מחיר"}</div>
       ${stepper(p)}
     </article>`;
@@ -372,17 +441,31 @@ button { cursor: pointer; }
   // ---------- cart ----------
   function compare(act) {
     const items = Object.entries(S.cart).map(([c, q]) => [S.byId.get(c), q]).filter(([p]) => p);
-    const rows = act.map(i => {
-      let total = 0; const missing = [];
-      for (const [p, q] of items) { const v = p.prices[i]; if (v == null) missing.push(p.name); else total += v * q; }
-      return { i, total, missing };
-    });
     const common = items.filter(([p]) => act.every(i => p.prices[i] != null));
-    for (const r of rows) r.fair = common.reduce((s, [p, q]) => s + p.prices[r.i] * q, 0);
+    const rows = act.map(i => {
+      let total = 0, shelf = 0, deals = 0; const missing = [];
+      for (const [p, q] of items) {
+        const r = priceAt(p, i, q);
+        if (!r) { missing.push(p.name); continue; }
+        total += r.cost; shelf += r.shelf; if (r.promo) deals++;
+      }
+      let fair = 0, fairShelf = 0;
+      for (const [p, q] of common) { const r = priceAt(p, i, q); fair += r.cost; fairShelf += r.shelf; }
+      return { i, total: Math.round(total), shelf: Math.round(shelf), fair: Math.round(fair), fairShelf: Math.round(fairShelf), deals, missing };
+    });
     rows.sort((a, b) => a.missing.length - b.missing.length || a.total - b.total);
-    let split = 0; const used = new Set();
-    for (const [p, q] of items) { const pi = priceInfo(p, act); if (pi.lo != null) { split += pi.lo * q; used.add(pi.at); } }
-    return { items, rows, common, split, used };
+    let split = 0, splitShelf = 0; const used = new Set(); const lines = [];
+    for (const [p, q] of items) {
+      let best = null, lowShelf = null;
+      for (const i of act) {
+        const r = priceAt(p, i, q); if (!r) continue;
+        if (!best || r.cost < best.cost) best = { ...r, i };
+        if (lowShelf == null || r.shelf < lowShelf) lowShelf = r.shelf;
+      }
+      lines.push({ p, q, best });
+      if (best) { split += best.cost; splitShelf += lowShelf; used.add(best.i); }
+    }
+    return { items, rows, lines, common, split: Math.round(split), splitShelf: Math.round(splitShelf), used };
   }
 
   function renderCart() {
@@ -397,10 +480,11 @@ button { cursor: pointer; }
       return;
     }
     const fairLow = Math.min(...c.rows.map(r => r.fair));
-    const lines = c.items.map(([p, q]) => {
-      const pi = priceInfo(p, act);
+    const chains = clubChains();
+    const lines = c.lines.map(({ p, q, best: b }) => {
       return `<li class="line"><button class="n" data-open="${esc(p.code)}">${esc(p.name)}</button>
-        <span class="p">${pi.lo == null ? "—" : `מ־<span class="num">${money(pi.lo * q)}</span> ₪`}</span>
+        <span class="p">${!b ? "—" : `מ־<span class="num">${money(b.cost)}</span> ₪`}</span>
+        ${b && b.promo ? `<span class="sv">${dealBadge(b.promo)}<span>חוסך <span class="num">${money(b.shelf - b.cost)}</span> ₪ ב${esc(S.D.stores[b.i].chain)}</span></span>` : ""}
         <div class="step"><button data-inc="${esc(p.code)}" aria-label="עוד">+</button><output class="num">${qtyText(p, q)}</output><button data-dec="${esc(p.code)}" aria-label="פחות">−</button></div>
         <button class="rm" data-rm="${esc(p.code)}">הסרה</button></li>`;
     }).join("");
@@ -412,6 +496,7 @@ button { cursor: pointer; }
         <span class="tot num">${money(r.total)} ₪</span>
         <span class="ad">${esc(s.branch)}${d != null ? ` · <span class="num">${d.toFixed(1)}</span> ק״מ` : ""}</span>
         <span class="pct ${r.fair === fairLow ? "best" : ""}">${pct}</span>
+        ${r.shelf > r.total ? `<span class="dealnote"><b>חוסך <span class="num">${money(r.shelf - r.total)}</span> ₪ ב־${r.deals} מבצעים</b> · ללא מבצעים: <span class="num">${money(r.shelf)}</span> ₪</span>` : ""}
         ${r.missing.length ? `<span class="miss">חסר: ${r.missing.map(esc).join("، ")}</span>` : ""}
       </li>`;
     }).join("");
@@ -422,9 +507,12 @@ button { cursor: pointer; }
       <ul class="lines">${lines}</ul>
       <h3 class="sec">איפה לקנות</h3>
       <ol class="rank">${rank}</ol>
-      <div class="split">קנייה מפוצלת בין <b class="num">${c.used.size}</b> סניפים: <b class="num">${money(c.split)} ₪</b>${save > 0 ? ` · חוסך <b class="num">${money(save)} ₪</b>` : ""}</div>
+      <div class="split">קנייה מפוצלת בין <b class="num">${c.used.size}</b> סניפים: <b class="num">${money(c.split)} ₪</b>${save > 0 ? ` · חוסך <b class="num">${money(save)} ₪</b>` : ""}${c.splitShelf > c.split ? ` · ללא מבצעים: <span class="num">${money(c.splitShelf)} ₪</span>` : ""}</div>
+      ${chains.length ? `<div class="club"><label><input type="checkbox" id="clubAll" ${chains.some(([k]) => S.club[k]) ? "checked" : ""}> יש לי כרטיס מועדון</label>
+        <div class="chains">${chains.map(([k, n]) => `<label><input type="checkbox" data-club="${esc(k)}" ${S.club[k] ? "checked" : ""}> ${esc(n)}</label>`).join("")}</div>
+        <span class="dealnote">מחירי מועדון נספרים רק ברשתות שסימנתם.</span></div>` : ""}
       <div id="moreBox"></div>
-      <p class="fine">השוואה הוגנת על ${c.common.length} מתוך ${n} מוצרים שיש בכל הסניפים. מחירי מדף רגילים מקובצי המחירים הרשמיים של הרשתות (חוק המזון), ${fmtDate(S.D.priceDate)}. מבצעים ומחירי מועדון לא כלולים. מרחק בקו אווירי. ירקות, פירות ובשר מחושבים לק״ג.</p>`;
+      <p class="fine">השוואה הוגנת על ${c.common.length} מתוך ${n} מוצרים שיש בכל הסניפים. מחירים ומבצעים מקובצי המחירים הרשמיים של הרשתות (חוק המזון), ${fmtDate(S.D.priceDate)}. נספרים מבצעי מחיר, ״N ב־X״ ואחוזי הנחה על מוצר בודד; קופונים, מתנות והנחות על סכום קנייה לא נספרים. מבצע ״N ב־X״ חל על כל N יחידות מאותו מוצר. מרחק בקו אווירי. ירקות, פירות ובשר מחושבים לק״ג.</p>`;
     renderMore(c, act);
   }
 
@@ -493,8 +581,11 @@ button { cursor: pointer; }
       <div class="sub">${p.w ? "מחיר לק״ג · המוצר המקביל בכל רשת לפי שם" : `ברקוד <span class="num">${esc(p.code)}</span> · אותו מוצר בדיוק בכל הרשתות`}</div>
       <table class="ptable"><tbody>${rows.map(r => {
         const d = dist(r.i);
-        return `<tr class="${r.v === lo ? "low" : ""}" style="${act.has(r.i) ? "" : "opacity:.5"}"><td>${esc(r.s.chain)} <small>${esc(r.s.branch)}${d != null ? ` · ${d.toFixed(1)} ק״מ` : ""}${p.picks && p.picks[r.i] ? ` · ״${esc(p.picks[r.i])}״` : ""}</small></td>
-        <td class="num">${money(r.v)} ₪${r.v > lo ? `<small>+${money(r.v - lo)}</small>` : ""}</td></tr>`;
+        const ps = p.w ? [] : shownPromos(r.i, p.code);
+        const live = ps.filter(pr => !pr.club || hasClub(r.i)).map(pr => dealUnit(pr, r.v)).sort((a, b) => a - b)[0];
+        return `<tr class="${r.v === lo ? "low" : ""}" style="${act.has(r.i) ? "" : "opacity:.5"}"><td>${esc(r.s.chain)} <small>${esc(r.s.branch)}${d != null ? ` · ${d.toFixed(1)} ק״מ` : ""}${p.picks && p.picks[r.i] ? ` · ״${esc(p.picks[r.i])}״` : ""}</small>
+        ${ps.map(pr => `<div>${dealBadge(pr)}<span class="dealdesc">${esc(pr.desc)}${pr.club && !hasClub(r.i) ? " · דורש כרטיס מועדון (מופעל בסל)" : ""}</span></div>`).join("")}</td>
+        <td class="num">${money(r.v)} ₪${r.v > lo ? `<small>+${money(r.v - lo)}</small>` : ""}${live != null && live < r.v ? `<small style="color:var(--bad);font-weight:700">${money(live)} ₪ במבצע</small>` : ""}</td></tr>`;
       }).join("")}</tbody></table>
       <div class="sheet-actions" id="sheetAct">${stepper(p)}<button class="close" id="closeSheet">סגירה</button></div>
     </div></div>`;
@@ -527,6 +618,13 @@ button { cursor: pointer; }
     else if (t.id === "clear" || t.id === "clear2") { S.cart = {}; S.example = false; store.set("cart", {}); store.set("example", false); renderShop(); renderCart(); }
     else if (t.id === "closeSheet") closeSheet();
     else if (t.id === "scrim") closeSheet();
+  });
+  document.addEventListener("change", e => {
+    const t = e.target; if (!t || t.type !== "checkbox") return;
+    if (t.dataset.club) S.club[t.dataset.club] = t.checked;
+    else if (t.id === "clubAll") for (const [k] of clubChains()) S.club[k] = t.checked;
+    else return;
+    store.set("club", S.club); renderShop(); renderCart();
   });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && S.sheet) closeSheet(); });
   let qt; $("#q").addEventListener("input", e => { clearTimeout(qt); qt = setTimeout(() => { S.q = e.target.value; S.shown = 48; if (S.D) renderShop(); }, 120); });

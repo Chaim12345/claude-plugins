@@ -84,7 +84,8 @@ Progress arrives as JSON events on the listener.
 | `chains.go` | Portal clients: Shufersal, publishedprices.co.il (Rami Levy, Osher Ad, Yochananof, Tiv Taam, Keshet and others), Carrefour. Finds the newest PriceFull file per store. |
 | `parse.go` | Streaming XML parser. Handles gzip, UTF-8 with or without a BOM, and UTF-16. |
 | `catalog.go` | Matching: barcodes for packaged goods with an outlier filter, name rules for fresh items, keyword categories. |
-| `sync.go` | Orchestration, the download cache (keyed by published file name), and the "unchanged" shortcut. |
+| `sync.go` | Orchestration, the download cache (keyed by published file name), and the "unchanged" shortcut. Fetches each store's PromoFull next to its PriceFull; a missing or broken promo file never fails a sync. |
+| `promo.go` | PromoFull parser and the normalized promotion model (see Promotions). |
 | `geocode.go` | Online geocoding pool (Nominatim, Photon): rate limits, cache, city check, city-centre fallback. |
 | `offline.go`, `osmindex/` | The offline address index: building, lookup, and evaluation (`salzol osmindex build|eval`). |
 | `directory.go` | The national store directory, banners, and the nearby-store choice. |
@@ -94,9 +95,23 @@ Progress arrives as JSON events on the listener.
 
 Rami Levy's CDN had a photo for 34 of 40 randomly sampled packaged products. Open Food Facts fills some of the gaps. Rami Levy's photos belong to a retailer, so get permission before a public release, or set `core.UseChainImages = false` to use only Open Food Facts.
 
+## Promotions
+
+Each store's newest `PromoFull` file is downloaded and cached like its price file (`LatestPromoFull` on every portal). `ParsePromoFile` reads both layouts the chains use (Promotion > Groups > Group > PromotionItems, and Keshet's flat Promotion with `PromotionItems/Item` and `Clubs/ClubId`) and keeps only mechanics a basket can apply honestly:
+
+| kind | meaning | `value` |
+|---|---|---|
+| `price` | a fixed price per unit | agorot per unit |
+| `bundle` | `minQty` units for a total ("2 ב־10") | agorot for `minQty` units |
+| `percent` | percent off the shelf price | percent |
+
+A promotion with a club ID other than 0 ("0 - כלל הלקוחות" is everyone) has `club: true`. Everything else is counted by reason and dropped: `coupon`, `gift` (free item, N+1, "מתנה"), `basket_min` (minimum purchase), `weighted` (per kg), `multi_group` (a separate reward group). At catalog build time promotions that ended or haven't started by the price file's time are dropped (`expired`), as are those that don't make any catalog product cheaper (`implausible`) or cover no catalog product (`not_in_catalog`).
+
+The catalog gets a top-level `promos` (a list per store, same order as `stores`) of `{id, codes, minQty, kind, value, club, desc, max?, end?}`, with `codes` cut down to catalog products sold at that store, and `promoStats` per store (`parsed`, `modeled`, `applied`, `skipped` by reason). `end` is `YYYYMMDDhhmm` in local time. Consumers that ignore these fields still see shelf prices. A "N ב־X" deal applies per product, floor(q/N) times with the remainder at shelf price. Many chains write it as mix-and-match across several barcodes, which is counted conservatively.
+
 ## Not done yet
 
-- Promotions and club prices (`PromoFull` files).
+- Basket-level and gift promotions, mix-and-match across different products, weighted (per kg) promotions, weekday/hour windows, and club-specific membership tiers (see Promotions).
 - Intraday `Price` update files. Sync uses the daily `PriceFull`.
 - Carrefour's store list. Its portal timed out from the cloud environment used to build the directory.
 - Photos for fresh produce. Rami Levy's produce codes mostly have no photo, so those cards show a placeholder.

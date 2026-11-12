@@ -8,8 +8,9 @@ https://github.com/OpenIsraeliSupermarkets/israeli-supermarket-scarpers
 
 **Changes:**
 - Rewritten in Go.
-- Fetches only one store's newest PriceFull file and each chain's Stores file. No Promo files and no history.
+- Fetches only one store's newest PriceFull and PromoFull files and each chain's Stores file. No intraday files and no history.
 - Portal URLs, chain IDs and published logins come from the original. Listing, downloading and parsing were reimplemented.
+- The PromoFull file types (Shufersal category 4, Bina `WFileType` 5, the `PromoFull` name prefix elsewhere) are taken from the scraper's file-type tables. `promo.go` reads PromoFull files into its own model. The reference parser repository (israeli-supermarket-parsers, same author and license) was not used as source; the tag names come from reading the real files.
 
 That project's license allows **non-commercial use only**, with attribution. Commercial use of this material requires the original author's written permission (contact details are in that repository's `LICENSE.txt`). The rest of this directory is under this repository's license.
 

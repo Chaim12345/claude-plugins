@@ -19,18 +19,23 @@ type Catalog struct {
 	// matched names per store (fresh items only, else null), image code (barcode to look a photo up by, or null)]
 	Products [][]any  `json:"products"`
 	Images   []string `json:"imageSources"` // URL templates tried in order; {code} is replaced
+	// Promos[i] are store i's promotions (see Promo), referring to packaged product codes. Older
+	// catalogs and consumers that ignore the field keep working with shelf prices.
+	Promos     [][]Promo    `json:"promos"`
+	PromoStats []PromoStats `json:"promoStats,omitempty"`
 }
 
 type Store struct {
-	ID       string   `json:"id"` // chain:store_id
-	Chain    string   `json:"chain"`
-	Branch   string   `json:"branch"`
-	Address  string   `json:"address"`
-	Lat      *float64 `json:"lat"`
-	Lon      *float64 `json:"lon"`
-	Approx   bool     `json:"approx"`
-	File     string   `json:"file,omitempty"`     // the published file these prices came from
-	FileTime string   `json:"fileTime,omitempty"` // its timestamp, YYYYMMDDhhmm
+	ID        string   `json:"id"` // chain:store_id
+	Chain     string   `json:"chain"`
+	Branch    string   `json:"branch"`
+	Address   string   `json:"address"`
+	Lat       *float64 `json:"lat"`
+	Lon       *float64 `json:"lon"`
+	Approx    bool     `json:"approx"`
+	File      string   `json:"file,omitempty"`      // the published file these prices came from
+	FileTime  string   `json:"fileTime,omitempty"`  // its timestamp, YYYYMMDDhhmm
+	PromoFile string   `json:"promoFile,omitempty"` // the PromoFull file the promos came from, if any
 }
 
 type Area struct {
@@ -136,8 +141,9 @@ func Categorize(name string) string {
 
 // StoreData is one store's parsed price file.
 type StoreData struct {
-	Store Store
-	Items []Item
+	Store  Store
+	Items  []Item
+	Promos *PromoFile // nil = no promotions file for this store
 }
 
 // RamiLevyChain is the chain key whose CDN serves product photos by item code.
