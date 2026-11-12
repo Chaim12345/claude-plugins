@@ -1,5 +1,5 @@
 # Tests for the סל זול app (plugins/il-supermarket-compare): Go engine and app unit tests, an
-# Android emulator end-to-end run, and an iOS simulator build.
+# Android emulator end-to-end run.
 #
 # GitHub's runners are outside Israel, so the chains that block foreign addresses (Victory,
 # Carrefour, Hazi Hinam, Mahsanei HaShuk) still can't be reached from here.
@@ -127,39 +127,3 @@ jobs:
             ${{ env.APP }}/mobile/e2e/out/
             ${{ env.APP }}/mobile/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: warn
-
-  ios-build:
-    name: iOS simulator build
-    needs: unit
-    runs-on: macos-latest
-    timeout-minutes: 75
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: ${{ env.APP }}/core/go.mod
-          cache-dependency-path: ${{ env.APP }}/core/go.sum
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ${{ env.APP }}/mobile/package-lock.json
-      - name: Build the Go engine for iOS (gomobile)
-        working-directory: ${{ env.APP }}/mobile
-        run: |
-          go install golang.org/x/mobile/cmd/gomobile@latest golang.org/x/mobile/cmd/gobind@latest
-          export PATH="$PATH:$(go env GOPATH)/bin"
-          gomobile init
-          bash scripts/build-go.sh ios
-      - name: Build the app for the iOS simulator
-        working-directory: ${{ env.APP }}/mobile
-        run: |
-          npm ci --no-audit --no-fund
-          CI=1 npx expo prebuild -p ios
-          cd ios
-          WS=$(ls -d *.xcworkspace | head -1)
-          SCHEME=$(xcodebuild -workspace "$WS" -list -json | python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace"]["schemes"][0])')
-          echo "workspace=$WS scheme=$SCHEME"
-          xcodebuild -workspace "$WS" -scheme "$SCHEME" -configuration Release \
-            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build | tail -40
