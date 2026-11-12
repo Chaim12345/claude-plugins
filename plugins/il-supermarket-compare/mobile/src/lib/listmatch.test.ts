@@ -157,3 +157,16 @@ test("index is cached per catalog", () => {
   assert.equal(buildIndex(products), buildIndex(products));
   assert.ok(matchLine(buildIndex(products), parseLine("חלב"), all).cands.length);
 });
+
+test("dish soap: 'סבון כלים' finds products named 'לכלים', not bar soap", () => {
+  const prods = toProducts({
+    priceDate: "2026-11-12", generatedAt: "", skipped: [], categories: [], areas: [],
+    stores: [{ id: "a:1", chain: "A", branch: "", address: "", lat: null, lon: null, approx: false }],
+    products: [
+      ["1", "סבון פלמוליב קמומיל4 90ג", "care", 0, [990], null, "1"],
+      ["2", "פלמוליב לכלים אקטיב לימון 750 צהוב", "cleaning", 0, [1290], null, "2"],
+    ],
+  } as Catalog);
+  const [m] = matchList(prods, parseList("סבון כלים"), [0]);
+  assert.equal(m.cands[0]?.code, "2");
+});
