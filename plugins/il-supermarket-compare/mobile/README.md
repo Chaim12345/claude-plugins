@@ -38,6 +38,21 @@ npx expo run:android               # or: npx eas-cli build -p android
 
 The native module (`modules/salzol-native`) exposes `syncNear`, `nearbyStores`, `lastCatalog`, `resolveImage` and `cancelSync`, and streams progress as `onSyncEvent`.
 
+## Watchlist, alerts and price history
+
+Follow products ("עקוב") and mark a cart as "הסל הרגיל שלי". After every sync the app diffs the new catalog against yesterday's snapshot and produces alerts: a followed product goes on promotion, its price drops (default 5%, or a new 30-day low), the usual basket gets cheaper (default 5% or 15 ₪) or another branch becomes cheapest, a promo ends within 48 h, and an optional weekly digest. Alerts always land in the inbox (bell in the header); with notifications on they are also posted as local notifications on the "דילים" channel (max 3 per run, nothing during quiet hours 22:00-07:00, the same alert not repeated within 3 days).
+
+| Path | What it is |
+|---|---|
+| `src/lib/history.ts` | One compact snapshot per day for followed products and the basket, 90 days, under 300 KB (pure, tested) |
+| `src/lib/alerts.ts` | The alert rules, dedupe, rate limit, quiet hours, inbox (pure, tested) |
+| `src/lib/watchflow.ts` | One check: evaluate, record, update inbox, pick notifications (pure, tested) |
+| `src/lib/watchstore.ts`, `watchctx.tsx` | Persistence (AsyncStorage) and React state |
+| `src/lib/notify.ts`, `background.ts` | expo-notifications and the daily expo-background-task (native only; web shows the inbox only) |
+| `src/app/watch.tsx`, `inbox.tsx`, `notifications.tsx` | Watchlist, "מה חדש", notification settings |
+
+The background task is registered only while notifications are on and something is followed. The OS decides when it runs (Android WorkManager, iOS BGTaskScheduler); see the comment at the top of `background.ts` for the real limits. `index.ts` is the entry point so the task is defined in the global scope.
+
 ## Layout
 
 | Path | What it is |

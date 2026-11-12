@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fmtDate, fmtStamp, newestStamp } from "../lib/compare";
 import { useSettings } from "../lib/settings";
 import { syncLine, useData } from "../lib/store";
+import { useWatch } from "../lib/watchctx";
 import { T, useTheme } from "./ui";
 
 export function Header() {
@@ -14,6 +15,7 @@ export function Header() {
   const router = useRouter();
   const { place, sync, catalog, runSync } = useData();
   const { t: tr } = useSettings();
+  const { unread } = useWatch();
   const n = catalog?.stores.length ?? 0;
   let status = "";
   if (sync.running) status = syncLine(sync, n);
@@ -34,6 +36,11 @@ export function Header() {
           <Ionicons name="location-outline" size={17} color={t.brand} />
           <T numberOfLines={1} style={{ flexShrink: 1, fontWeight: "600", fontSize: 14 }}>{place ? place.place : "בחירת מיקום"}</T>
           {place ? <T numberOfLines={1} style={{ color: t.ink2, fontSize: 13, flexShrink: 0 }}>· {place.radius} ק״מ</T> : null}
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={unread ? `מה חדש, ${unread} לא נקראו` : "מה חדש"} onPress={() => router.push("/inbox")}
+          style={{ height: 36, width: 36, borderRadius: 18, borderWidth: 1, borderColor: t.line, alignItems: "center", justifyContent: "center" }}>
+          <Ionicons name={unread ? "notifications" : "notifications-outline"} size={18} color={unread ? t.brand : t.ink2} />
+          {unread ? <View style={{ position: "absolute", top: -4, right: -4, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, backgroundColor: t.bad, alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#fff", fontSize: 10.5, fontWeight: "800" }}>{unread > 9 ? "9+" : unread}</Text></View> : null}
         </Pressable>
         {place ? <HeaderIcon icon="map-outline" label={tr("map.open")} onPress={() => router.push("/map")} /> : null}
         <HeaderIcon icon="settings-outline" label={tr("settings.title")} onPress={() => router.push("/settings")} />

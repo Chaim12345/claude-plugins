@@ -24,7 +24,8 @@
         "android.permission.VIBRATE",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"
-      ]
+      ],
+      "permissions": ["POST_NOTIFICATIONS"]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -47,7 +48,16 @@
           "locationWhenInUsePermission": "המיקום משמש רק כדי למצוא סופרמרקטים קרובים אליך."
         }
       ],
-      "@maplibre/maplibre-react-native"
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#1d6b47",
+          "defaultChannel": "deals"
+        }
+      ],
+      "expo-background-task"
     ],
     "scheme": "salzol",
     "experiments": {

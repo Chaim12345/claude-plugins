@@ -5,6 +5,7 @@ import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "re
 import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { AddBtn, Button, DealBadge, IconBtn, Num, PriceTag, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
 import { bestDeal, dealText, money, search, storeKm, type BestDeal, type PriceInfo, type Sort } from "../../lib/compare";
+import { FollowButton } from "../../components/WatchBits";
 import { useData } from "../../lib/store";
 import type { Catalog, Product } from "../../lib/types";
 
@@ -63,6 +64,7 @@ export default function Shop() {
           {q ? <Pressable onPress={() => setQ("")} accessibilityRole="button" accessibilityLabel="ניקוי החיפוש" hitSlop={10}><Ionicons name="close-circle" size={20} color={t.ink2} /></Pressable> : null}
         </View>
         <IconBtn icon="list" label="הדבקת רשימת קניות" onPress={() => router.push("/list")} />
+        <IconBtn icon="eye-outline" label="המעקב שלי" onPress={() => router.push("/watch")} />
         {canScan() ? <IconBtn icon="barcode-outline" label="סריקת ברקוד" onPress={() => router.push("/scan")} /> : null}
       </View>
 
@@ -132,9 +134,10 @@ const Row = memo(function Row({ p, pi, deal, chain, qty, setQty, open }: ItemPro
       <ProductImage p={p} size={64} />
       <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
         <T numberOfLines={2} style={{ fontWeight: "600", fontSize: 14.5, lineHeight: 19 }}>{p.name}</T>
-        <T numberOfLines={1} style={{ fontSize: 12.5, color: t.ink2 }}>
-          {chain} · {pi.n} סניפים
-        </T>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+          <T numberOfLines={1} style={{ fontSize: 12.5, color: t.ink2, flexShrink: 1 }}>{chain} · {pi.n} סניפים</T>
+          <FollowButton code={p.code} name={p.name} compact />
+        </View>
         {deal ? <DealBadge text={dealText(deal.promo)} club={deal.promo.club} /> : null}
       </View>
       <View style={{ alignItems: "flex-end", gap: 6 }}>
@@ -154,6 +157,7 @@ const Card = memo(function Card({ p, pi, deal, dealChain, chain, qty, setQty, op
         <ProductImage p={p} size="fill" />
         <T numberOfLines={2} style={{ fontWeight: "600", fontSize: 14.5, minHeight: 38, lineHeight: 19 }}>{p.name}</T>
       </Pressable>
+      <View style={{ position: "absolute", top: 14, right: 14 }}><FollowButton code={p.code} name={p.name} compact /></View>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", gap: 6 }}>
         <PriceTag agorot={pi.lo!} />
         <View style={{ flexShrink: 1, alignItems: "flex-start" }}>

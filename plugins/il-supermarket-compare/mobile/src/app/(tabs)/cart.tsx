@@ -7,12 +7,15 @@ import { CartShareBar } from "../../components/ShareButtons";
 import { Button, DealBadge, Num, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
 import { clubChains, dealText, fmtDate, money, priceInfo, storeKm, type Comparison } from "../../lib/compare";
 import type { Catalog } from "../../lib/types";
+import { FollowButton, NotifyOffer } from "../../components/WatchBits";
 import { useData } from "../../lib/store";
+import { useWatch } from "../../lib/watchctx";
 
 export default function CartScreen() {
   const t = useTheme();
   const router = useRouter();
-  const { catalog, comparison: c, active, setQty, clearCart, place, saved, club, setClub, setClubAll } = useData();
+  const { catalog, comparison: c, active, setQty, clearCart, place, saved, club, setClub, setClubAll, cart } = useData();
+  const { usual, setUsual } = useWatch();
   const [showAll, setShowAll] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -52,6 +55,7 @@ export default function CartScreen() {
                 <T numberOfLines={1} style={{ fontWeight: "600", fontSize: 14 }}>{p.name}</T>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                   <Stepper p={p} qty={q} onChange={v => setQty(p.code, v)} compact />
+                  <FollowButton code={p.code} name={p.name} compact />
                   <T style={{ color: t.ink2, fontSize: 13 }}>{!b ? "—" : `מ־${money(b.cost)} ₪`}</T>
                 </View>
                 {b?.promo ? (
@@ -106,6 +110,21 @@ export default function CartScreen() {
           <T>קנייה מפוצלת בין {c.splitStores} סניפים: <Text style={{ fontWeight: "800" }}>{money(c.split)} ₪</Text>{save > 0 ? <Text> · חוסך <Text style={{ fontWeight: "800" }}>{money(save)} ₪</Text></Text> : null}{c.splitShelf > c.split ? <Text style={{ color: t.ink2 }}> · ללא מבצעים: {money(c.splitShelf)} ₪</Text> : null}</T>
         </View>
         <MoreChains catalog={catalog} comparison={c} active={active} place={place} />
+      </Section>
+
+      <Section title="הסל הרגיל שלי">
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <T style={{ fontWeight: "700", flexShrink: 1 }}>עקוב אחרי הסל הזה</T>
+          <Switch value={!!usual} onValueChange={on => setUsual(on ? cart : null)} accessibilityLabel="עקוב אחרי הסל הזה" />
+        </View>
+        <T style={{ color: t.ink2, fontSize: 12 }}>
+          {usual ? `מעקב אחרי ${Object.keys(usual).length} פריטים. נעדכן כשהסל מתוזל או שסניף אחר הופך לזול ביותר.` : "נשמור את הסל הזה כ״סל הרגיל״ ונעדכן כשהוא מתוזל או שסניף אחר הופך לזול ביותר."}
+        </T>
+        {usual && JSON.stringify(Object.entries(usual).sort()) !== JSON.stringify(Object.entries(cart).sort()) ? (
+          <Button kind="ghost" title="עדכון הסל הרגיל לסל הנוכחי" style={{ height: 40 }} onPress={() => setUsual(cart)} />
+        ) : null}
+        <Button kind="ghost" title="המעקב שלי" style={{ height: 40 }} onPress={() => router.push("/watch")} />
+        <NotifyOffer />
       </Section>
 
       {chains.length ? (

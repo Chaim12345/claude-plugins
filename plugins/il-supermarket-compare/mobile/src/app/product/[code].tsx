@@ -1,11 +1,15 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Button, DealBadge, Num, PinnedBar, ProductImage, Stepper, T, useTheme } from "../../components/ui";
 import { ProductShareButton } from "../../components/ShareButtons";
+import { FollowButton, NotifyOffer, Spark, TrendText } from "../../components/WatchBits";
 import { dealText, dealUnit, money, shownPromos, storeKm } from "../../lib/compare";
+import { series } from "../../lib/history";
 import { useData } from "../../lib/store";
+import { useWatch } from "../../lib/watchctx";
 
 export default function ProductSheet() {
   const t = useTheme();
@@ -13,6 +17,8 @@ export default function ProductSheet() {
   const insets = useSafeAreaInsets();
   const { code } = useLocalSearchParams<{ code: string }>();
   const { catalog, products, active, cart, setQty, deals } = useData();
+  const { isFollowed, state } = useWatch();
+  const [now] = useState(Date.now);
   const p = products.get(String(code));
   if (!catalog || !p) {
     return <View style={{ flex: 1, padding: 24 }}><T>המוצר לא נמצא במחירון הנוכחי.</T><Button title="חזרה" onPress={() => router.back()} /></View>;
@@ -51,6 +57,19 @@ export default function ProductSheet() {
           </View>
         </View>
       ) : null}
+      <View style={{ backgroundColor: t.surface, borderRadius: 14, padding: 12, gap: 8 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <T style={{ fontWeight: "800", fontSize: 16 }}>מחיר ב־30 הימים האחרונים</T>
+          <FollowButton code={p.code} name={p.name} />
+        </View>
+        {isFollowed(p.code) ? (
+          <>
+            <Spark pts={series(state.history, p.code, now, 30)} height={70} />
+            <TrendText pts={series(state.history, p.code, now, 30)} />
+          </>
+        ) : <T style={{ color: t.ink2, fontSize: 12.5 }}>עקבו אחרי המוצר כדי לשמור את היסטוריית המחיר שלו ולקבל הודעה על מבצע או ירידת מחיר.</T>}
+      </View>
+      {isFollowed(p.code) ? <NotifyOffer /> : null}
       <View style={{ backgroundColor: t.surface, borderRadius: 14, paddingHorizontal: 12 }}>
         {rows.map(({ s, i, v }) => {
           const d = storeKm(catalog, i);

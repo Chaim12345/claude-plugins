@@ -6,6 +6,7 @@ import { Onboarding } from "../components/Onboarding";
 import { useTheme } from "../components/ui";
 import { SettingsProvider } from "../lib/settings";
 import { DataProvider } from "../lib/store";
+import { WatchProvider } from "../lib/watchctx";
 
 export default function RootLayout() {
   const t = useTheme();
@@ -13,6 +14,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <SettingsProvider>
       <DataProvider>
+       <WatchProvider>
         {/* direction: rtl lays the whole app out right-to-left on iOS, Android and web, with no restart. */}
         <View style={{ flex: 1, direction: "rtl", backgroundColor: t.bg }}>
           <StatusBar style="auto" />
@@ -25,9 +27,13 @@ export default function RootLayout() {
             <Stack.Screen name="saved" options={{ presentation: "modal" }} />
             <Stack.Screen name="map" options={{ presentation: "modal" }} />
             <Stack.Screen name="settings" options={{ presentation: "modal" }} />
+            <Stack.Screen name="watch" options={{ presentation: "modal" }} />
+            <Stack.Screen name="inbox" options={{ presentation: "modal" }} />
+            <Stack.Screen name="notifications" options={{ presentation: "modal" }} />
           </Stack>
           <Onboarding />
         </View>
+       </WatchProvider>
       </DataProvider>
       </SettingsProvider>
     </SafeAreaProvider>
