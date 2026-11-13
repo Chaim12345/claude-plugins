@@ -11,6 +11,7 @@ import { series } from "../../lib/history";
 import { useData } from "../../lib/store";
 import { useWatch } from "../../lib/watchctx";
 import { sizeOf, sizeText, unitPrice, unitText } from "../../lib/units";
+import { equivalents } from "../../lib/swaps";
 
 export default function ProductSheet() {
   const t = useTheme();
@@ -35,7 +36,8 @@ export default function ProductSheet() {
   const size = sizeOf(p);
   const moves = changes.filter(c => c.code === p.code).slice(-6).reverse();
   const storeName = (id: string) => catalog.stores.find(s => s.id === id)?.chain ?? "";
-  const deal = bestDeal(p, active, deals); // the lowest price a promotion gives right now, if it beats the shelf
+  const deal = bestDeal(p, active, deals);
+  const eq = equivalents(p, products, active); // the lowest price a promotion gives right now, if it beats the shelf
   const facts = [p.meta?.maker ? `יצרן: ${p.meta.maker}` : "", p.meta?.il ? "תוצרת הארץ" : ""].filter(Boolean).join(" · ");
   return (
     <View style={{ flex: 1 }}>
@@ -141,6 +143,23 @@ export default function ProductSheet() {
         ) : <T style={{ color: t.ink2, fontSize: 12.5 }}>עקבו אחרי המוצר כדי לשמור את היסטוריית המחיר שלו ולקבל הודעה על מבצע או ירידת מחיר.</T>}
       </View>
       {isFollowed(p.code) ? <NotifyOffer /> : null}
+      {eq.length ? (
+        <View style={{ backgroundColor: t.surface, borderRadius: 14, padding: 12, gap: 8 }}>
+          <T style={{ fontWeight: "800", fontSize: 16 }}>אותו מוצר, כל המותגים</T>
+          <T style={{ color: t.ink2, fontSize: 12.5 }}>אותו סוג, אחוז שומן וגודל דומה, מהזול ליחידה. כל אחד בסניף שבו הוא הכי זול.</T>
+          {eq.map(e => (
+            <Pressable key={e.p.code} disabled={e.p.code === p.code} onPress={() => router.push(`/product/${encodeURIComponent(e.p.code)}`)} accessibilityRole="button"
+              style={{ flexDirection: "row", alignItems: "center", gap: 10, opacity: 1, backgroundColor: e.p.code === p.code ? t.brandSoft : "transparent", borderRadius: 10, padding: 4 }}>
+              <ProductImage p={e.p} size={40} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <T numberOfLines={1} style={{ fontSize: 13.5, fontWeight: e.p.code === p.code ? "800" : "600" }}>{e.p.code === p.code ? "המוצר הזה · " : ""}{e.p.name}</T>
+                <T numberOfLines={1} style={{ color: t.ink2, fontSize: 12 }}>{catalog.stores[e.store].chain} · {unitText(e.unit)}</T>
+              </View>
+              <Num style={{ fontWeight: "800" }}>{money(e.price)} ₪</Num>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       {moves.length ? (
         <View style={{ backgroundColor: t.surface, borderRadius: 14, padding: 12, gap: 8 }}>
           <T style={{ fontWeight: "800", fontSize: 16 }}>שינויי מחיר שראינו</T>

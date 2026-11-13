@@ -196,14 +196,14 @@ export function recentlyChanged(products: Iterable<Product>, active: number[], d
 
 // ---- Regulars ------------------------------------------------------------------------------
 
-/** code -> [times put in a cart, when last (ms)] */
-export type Freq = Record<string, [number, number]>;
+/** code -> [times put in a cart, when last (ms), when first (ms)] */
+export type Freq = Record<string, [number, number, number?]>;
 
 /** Counts one more "put in the cart" for a product. At most once a day per product, so +/- taps don't inflate it. */
 export function bumpFreq(freq: Freq, code: string, now: number): Freq {
   const e = freq[code];
   if (e && now - e[1] < 20 * 3_600_000) return freq;
-  return { ...freq, [code]: [(e?.[0] ?? 0) + 1, now] };
+  return { ...freq, [code]: [(e?.[0] ?? 0) + 1, now, e?.[2] ?? e?.[1] ?? now] };
 }
 
 /** Keeps the `max` most used entries (by count, then recency). */

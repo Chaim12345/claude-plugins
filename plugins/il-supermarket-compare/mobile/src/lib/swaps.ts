@@ -17,7 +17,8 @@ import { sizeOf, similarSize, sizeText, unitPrice, withoutSize, type Size, type 
 /** Brands and private labels that loose matching may ignore (staples only, see COMMODITY). */
 export const BRANDS = new Set(
   ("אסם סוגת יכין תנובה שטראוס טרה יטבתה גד אחלה זוגלובק שקדיה הלמנס היינץ מעדנות תבור הרדוף פיראוס יחיעם " +
-    "רמי לוי שופרסל מותג מחפוד צבר שמיר ניקול סנו סנסודיין אורביט וילי פוד פרימור המסעדה השיטה אלטרנטיב עוף").split(/\s+/),
+    "רמי לוי שופרסל מותג מחפוד צבר שמיר ניקול סנו סנסודיין אורביט וילי פוד פרימור המסעדה השיטה אלטרנטיב עוף " +
+    "רמת הגולן מהגולן הגולן גלבוע עמק מחלבות").split(/\s+/),
 );
 
 /** Head words of staples: brand-agnostic matching is allowed only when one of these is in the name. */
@@ -26,7 +27,9 @@ export const COMMODITY = new Set(
 );
 
 /** Words that say nothing about what the product is. */
-const FILLER = new Set(("עם של בטעם טעם ב ו חדש אריזה שומן כשר מהדרין א ק ג ל מ גרם גר קג ליטר מל יח יחידות").split(/\s+/));
+const FILLER = new Set(("עם של בטעם טעם ב ו חדש אריזה שומן כשר מהדרין א ק ג ל מ גרם גר קג ליטר מל יח יחידות " +
+  // how it's sold, not what it is ("עמיד", long-life, is left in: it is a different product)
+  "מחיר מפוקח בפיקוח קרטון בקרטון שקית בשקית טרי").split(/\s+/));
 
 /** Baby formula and the like: never auto-swapped (and a "שלב 1" is not a "שלב 2"). */
 const NEVER = /שלב\s*\d|סימילאק|מטרנה|נוטרילון|פרימיל/;
@@ -198,4 +201,28 @@ export function applySwap(cart: Cart, from: string, to: string): Cart {
   delete next[from];
   next[to] = (next[to] ?? 0) + q;
   return next;
+}
+
+export type Equivalent = { p: Product; store: number; price: number; unit: UnitPrice; brandChange: boolean };
+
+/**
+ * "The same thing, any brand": products of the same type words and pack count with a size within
+ * ±15%, each at its cheapest active branch, cheapest per unit first (the product itself included,
+ * so its rank is visible). Staples match across brands; everything else needs the same words.
+ */
+export function equivalents(p: Product, products: Map<string, Product>, active: number[], limit = 6): Equivalent[] {
+  if (p.weighted) return [];
+  const size = sizeOf(p), keys = typeKeys(p.name);
+  if (!size || !keys) return [];
+  const out: Equivalent[] = [];
+  const list = [{ p, size }, ...candidates(swapIndex(products), p, keys).filter(e => e.p.code !== p.code)];
+  for (const e of list) {
+    if (e.size.packs !== size.packs || !similarSize(size, e.size)) continue;
+    let store = -1, price = Infinity;
+    for (const i of active) { const v = e.p.prices[i]; if (v != null && v < price) { price = v; store = i; } }
+    if (store < 0) continue;
+    out.push({ p: e.p, store, price, unit: unitPrice(e.size, price)!, brandChange: typeKeys(e.p.name)?.strict !== keys.strict });
+  }
+  if (out.length < 2) return [];
+  return out.sort((a, b) => a.unit.agorot - b.unit.agorot).slice(0, limit);
 }

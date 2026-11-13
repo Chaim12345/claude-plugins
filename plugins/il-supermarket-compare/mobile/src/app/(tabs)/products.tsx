@@ -11,6 +11,9 @@ import { useData } from "../../lib/store";
 import type { Catalog, Product } from "../../lib/types";
 
 type UiSort = Sort | "unit";
+
+// Kashrut is not in the price files; some names say it. Only those are matched, and the filter says so.
+const KOSHER = /מהדרין|בד["״']?ץ|גלאט|חת["״']?ם סופר|לנדא|רובין|חב["״']?ד|שארית/;
 const SORTS: { id: UiSort; label: string }[] = [
   { id: "pop", label: "נפוצים" }, { id: "cheap", label: "הכי זול" }, { id: "gap", label: "פער מחירים" }, { id: "unit", label: "הכי זול ליחידה" },
 ];
@@ -31,6 +34,7 @@ export default function Products() {
   const [showTop, setShowTop] = useState(false);
   const [onSale, setOnSale] = useState(false);
   const [onlyIL, setOnlyIL] = useState(false);
+  const [kosher, setKosher] = useState(false);
   const [showStores, setShowStores] = useState(false);
   const listRef = useRef<FlatList<[Product, PriceInfo]>>(null);
   const inputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
@@ -42,11 +46,13 @@ export default function Products() {
   }, [params.cat, params.focus, params.t]);
   const dq = useDeferredValue(q);
   const list = useMemo(() => {
-    const keep = onSale || onlyIL ? (p: Product) => (!onlyIL || !!p.meta?.il) && (!onSale || !!bestDeal(p, active, deals)) : undefined;
+    const keep = onSale || onlyIL || kosher
+      ? (p: Product) => (!onlyIL || !!p.meta?.il) && (!kosher || KOSHER.test(p.name)) && (!onSale || !!bestDeal(p, active, deals))
+      : undefined;
     const rows = search(products.values(), active, dq, cat, sort === "unit" ? "pop" : sort, keep);
     // cheapest per 100 g / litre / piece: grouped by kind, products with no known size last
     return sort === "unit" ? sortByUnitPrice(rows, ([p, pi]) => unitPrice(sizeOf(p), pi.lo!)) : rows;
-  }, [products, active, dq, cat, sort, onSale, onlyIL, deals]);
+  }, [products, active, dq, cat, sort, onSale, onlyIL, kosher, deals]);
 
   // The compact list is the default: comparing prices means scanning many items, and a list shows
   // about five times as many per screen as the grid. The choice is remembered.
@@ -112,6 +118,7 @@ export default function Products() {
               </Pressable>
               <Filter on={onSale} label="במבצע" icon="pricetag-outline" onPress={() => setOnSale(v => !v)} />
               <Filter on={onlyIL} label="תוצרת הארץ" icon="flag-outline" onPress={() => setOnlyIL(v => !v)} />
+              <Filter on={kosher} label="מהדרין/בד״ץ (לפי השם)" icon="star-outline" onPress={() => setKosher(v => !v)} />
               <View style={{ width: 1, height: 22, backgroundColor: t.line, marginHorizontal: 2 }} />
               <Text style={{ color: t.ink2, fontSize: 13 }}>מיון:</Text>
               {SORTS.map(s => (
@@ -132,7 +139,7 @@ export default function Products() {
             </View>
           </View>
         }
-        ListEmptyComponent={<T style={{ color: t.ink2, textAlign: "center", padding: 30 }}>{onSale || onlyIL ? "אין מוצר כזה עם המסננים שבחרתם. נסו להסיר מסנן." : "לא מצאנו מוצר כזה. נסו מילה קצרה יותר, למשל ״קוטג״."}</T>}
+        ListEmptyComponent={<T style={{ color: t.ink2, textAlign: "center", padding: 30 }}>{kosher ? "רק מוצרים ששמם מציין מהדרין, בד״ץ או גלאט. רוב המוצרים הכשרים לא מציינים זאת בשם, אז הרשימה חלקית." : onSale || onlyIL ? "אין מוצר כזה עם המסננים שבחרתם. נסו להסיר מסנן." : "לא מצאנו מוצר כזה. נסו מילה קצרה יותר, למשל ״קוטג״."}</T>}
         renderItem={({ item: [p, pi] }) => {
           const deal = bestDeal(p, active, deals);
           const props = { p, pi, deal, dealChain: deal ? catalog.stores[deal.i].chain : "", chain: catalog.stores[pi.at]?.chain ?? "", qty: cart[p.code] ?? 0, setQty, open: () => router.push(`/product/${encodeURIComponent(p.code)}`) };

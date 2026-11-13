@@ -149,7 +149,7 @@ test("regulars: counted once a day, shown when bought on two days, never what's 
   const H = 3_600_000, t0 = 1_800_000_000_000;
   let f = bumpFreq({}, "1", t0);
   f = bumpFreq(f, "1", t0 + H);          // same day: no second count
-  assert.deepEqual(f["1"], [1, t0]);
+  assert.deepEqual(f["1"], [1, t0, t0]);
   f = bumpFreq(f, "1", t0 + 30 * H);
   assert.equal(f["1"][0], 2);
   for (const code of ["2", "3"]) { f = bumpFreq(f, code, t0); f = bumpFreq(f, code, t0 + 30 * H); }

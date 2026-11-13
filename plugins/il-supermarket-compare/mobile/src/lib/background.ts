@@ -13,6 +13,7 @@
 //  - On web, in Expo Go without the native module, and when nothing is followed, nothing runs.
 import { Platform } from "react-native";
 import Native from "../../modules/salzol-native";
+import { dlog } from "./debuglog";
 import { engine } from "./engine";
 import { permission, present } from "./notify";
 import { loadPrefs, loadWatch, saveWatch, withLock } from "./watchstore";
@@ -26,6 +27,12 @@ export type JobResult = "done" | "skipped" | "failed";
 
 /** One background run. Exported for tests and for the manual "check now" in settings. */
 export async function runBackgroundJob(now = Date.now()): Promise<JobResult> {
+  const r = await backgroundJob(now);
+  dlog("background", r);
+  return r;
+}
+
+async function backgroundJob(now: number): Promise<JobResult> {
   if (!watching(await loadWatch())) return "skipped"; // nothing followed: don't spend battery or data
   const { place, off, club } = await loadPrefs();
   if (!place) return "skipped";
@@ -36,7 +43,8 @@ export async function runBackgroundJob(now = Date.now()): Promise<JobResult> {
       timer = setTimeout(() => { try { Native?.cancelSync(); } catch { /* ignore */ } rej(new Error("timeout")); }, SYNC_TIMEOUT_MS);
     });
     catalog = await Promise.race([engine.sync(place, () => {}), timeout]);
-  } catch {
+  } catch (e) {
+    dlog("background", "sync failed", String((e as Error)?.message ?? e));
     return "failed"; // offline, portal down or cancelled: the system will try again later
   } finally {
     if (timer) clearTimeout(timer);

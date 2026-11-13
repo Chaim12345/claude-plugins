@@ -5,6 +5,7 @@ import * as Location from "expo-location";
 import { Platform } from "react-native";
 import Native from "../../modules/salzol-native";
 import { parseDiscovery, type DiscoverResult } from "./discover";
+import { dlog } from "./debuglog";
 import { chooseCandidate, typedCity, withTimeout, type LatLon } from "./geo";
 import type { Catalog, MoreResult, NearStore, Place, SyncEvent } from "./types";
 
@@ -62,8 +63,10 @@ async function osCandidates(address: string): Promise<LatLon[]> {
     // The platform geocoder can hang (Google's geocoding service crashed on the CI emulator and the
     // call never returned): after 10 s the offline index and OpenStreetMap answer instead.
     const r = await withTimeout(Location.geocodeAsync(address), 10_000);
+    if (r == null) dlog("geocode", "phone geocoder: no answer in 10 s");
     return (r ?? []).map(x => ({ lat: x.latitude, lon: x.longitude }));
-  } catch {
+  } catch (e) {
+    dlog("geocode", "phone geocoder failed", String((e as Error)?.message ?? e));
     return [];
   }
 }
@@ -106,9 +109,12 @@ function deviceEngine(): Engine {
         const c = parse(await m.cityCentre(city).catch(() => '{"found":false}'));
         if (c.found) centre = { lat: c.lat, lon: c.lon };
       }
-      const pick = chooseCandidate(await osCandidates(address), centre);
+      const cands = await osCandidates(address);
+      const pick = chooseCandidate(cands, centre);
+      dlog("geocode", "phone", { city, centre: !!centre, candidates: cands.length, picked: !!pick });
       if (pick) return { ...pick, source: "device" };
       const g = parse(await m.geocode(address).catch(() => '{"found":false}'));
+      dlog("geocode", "osm/offline", { found: g.found });
       if (g.found && chooseCandidate([g], centre)) return { lat: g.lat, lon: g.lon, source: "osm" };
       return null;
     },

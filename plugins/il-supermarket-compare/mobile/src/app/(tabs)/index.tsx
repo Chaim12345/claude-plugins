@@ -2,13 +2,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useMemo } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
-import { Card, MiniProduct, Pct, PctBar, SearchButton, SectionHead } from "../../components/blocks";
+import { Card, MiniProduct, Pct, PctBar, RecCard, SearchButton, SectionHead } from "../../components/blocks";
 import { DealCard } from "../../components/DealCard";
 import { Button, CAT_ICON, CAT_TINT, IconBtn, Num, ProductImage, T, canScan, useTheme } from "../../components/ui";
 import { fmtDate, money, priceInfo, storeKm } from "../../lib/compare";
 import { bestOfWeek, cartQty, defaultFilters, filterDeals, type DealItem } from "../../lib/dealsFeed";
 import { dealFeed } from "../../lib/feed";
 import { dealsOnMine, priceIndex, recentlyChanged, regulars, staleFiles, summarizeChanges, topGaps } from "../../lib/insights";
+import { dueBasket, recommend } from "../../lib/recommend";
 import { useData } from "../../lib/store";
 import { useWatch } from "../../lib/watchctx";
 
@@ -24,7 +25,7 @@ const SHORT: Record<string, string> = { produce: "פירות וירקות", meat
 export default function Home() {
   const t = useTheme();
   const router = useRouter();
-  const { catalog, products, active, cart, club, place, ready, sync, freq, changes, setQty, addMany } = useData();
+  const { catalog, products, active, cart, club, place, ready, sync, freq, changes, baskets, recFeedback, dismissRec, acceptRec, setQty, addMany } = useData();
   const { state: watch } = useWatch();
 
   const index = useMemo(() => (catalog ? priceIndex(products.values(), active) : []), [catalog, products, active]);
@@ -38,6 +39,12 @@ export default function Home() {
   // deals on what this person buys: the cart, products bought on earlier days, followed products
   const mineSet = useMemo(() => new Set([...Object.keys(cart), ...Object.keys(freq), ...watch.followed]), [cart, freq, watch.followed]);
   const myDeals = useMemo(() => dealsOnMine(usable, mineSet, 10), [usable, mineSet]);
+  const forYou = useMemo(() => {
+    if (!catalog) return [];
+    const drops = catalog ? summarizeChanges(changes, products, catalog, active).down.map(v => ({ p: v.p, pct: v.pct })) : [];
+    return recommend({ products, active, cart, freq, baskets, deals: usable, drops, feedback: recFeedback, now: Date.now(), limit: 14 });
+  }, [catalog, products, active, cart, freq, baskets, usable, changes, recFeedback]);
+  const due = useMemo(() => dueBasket(forYou), [forYou]);
   const oldFiles = useMemo(() => (catalog ? staleFiles(catalog, active) : []), [catalog, active]);
   const mine = useMemo(() => regulars(freq, products, active, cart, 12), [freq, products, active, cart]);
   const moved = useMemo(() => (catalog ? summarizeChanges(changes, products, catalog, active) : null), [changes, products, catalog, active]);
@@ -125,6 +132,19 @@ export default function Home() {
             ))}
           </View>
         </View>
+
+        {forYou.length ? (
+          <View style={{ gap: 10 }}>
+            <SectionHead title="בשבילך" sub={Object.keys(freq).length < 5 ? "כדאי להשוות: מוצרי יסוד עם פער מחירים גדול בין הסניפים. ככל שתקנו, ההמלצות ילמדו מכם." : "לפי מה שאתם קונים, מתי, ומה במבצע עכשיו. × מסתיר המלצה ומלמד אותנו."}
+              action={Object.keys(due).length >= 2 ? `הסל הקבוע (${Object.keys(due).length})` : undefined} onAction={() => addMany(due)} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+              {forYou.map(r => (
+                <RecCard key={r.p.code} p={r.p} reason={r.reason} price={r.price} qty={r.qty} inCart={cart[r.p.code] ?? 0}
+                  onAdd={() => acceptRec(r)} onDismiss={() => dismissRec(r)} onOpen={() => open(r.p.code)} />
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
 
         {oldFiles.length ? (
           <Pressable onPress={() => router.push("/insights")} accessibilityRole="button"

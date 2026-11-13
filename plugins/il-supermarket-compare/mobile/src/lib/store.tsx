@@ -2,8 +2,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { compare, makeDeals, toProducts, type ClubPrefs, type Comparison, type Deals } from "./compare";
 import { addedCount, discoverLine, isDiscovering, nextNote, shouldCheckDiscovery, type DiscoverResult } from "./discover";
+import { dlog, installCrashLogging, loadLog } from "./debuglog";
 import { engine } from "./engine";
 import { bumpFreq, diffCatalogs, mergeChanges, trimFreq, type Change, type Freq } from "./insights";
+import { accept, dismiss, emptyFeedback, expire, type Basket, type Feedback, type Rec } from "./recommend";
 import { cleanName, mergeCarts, newId, uniqueName, type SavedList } from "./saved";
 import type { Cart, Catalog, Place, Product, SyncEvent } from "./types";
 
@@ -25,6 +27,10 @@ type Ctx = {
   ready: boolean; // finished reading saved state
   freq: Freq; // how often each product was put in a cart (for "my regulars")
   changes: Change[]; // prices that moved between syncs, last 30 days
+  baskets: Basket[]; // past baskets, recorded when the cart is emptied after shopping (newest last)
+  recFeedback: Feedback; // "for you": dismissed cards and what the user liked
+  dismissRec(r: Rec): void;
+  acceptRec(r: Rec): void; // adds the usual quantity to the cart and counts as positive feedback
   setQty(code: string, qty: number): void;
   addMany(items: Cart): void; // adds quantities to what is already in the cart
   saved: SavedList[];
@@ -42,7 +48,15 @@ type Ctx = {
 
 const C = createContext<Ctx | null>(null);
 
-const KEY = { cart: "salzol:cart", place: "salzol:place", off: "salzol:off", saved: "salzol:saved", club: "salzol:club", freq: "salzol:freq", changes: "salzol:changes" };
+const KEY = { cart: "salzol:cart", place: "salzol:place", off: "salzol:off", saved: "salzol:saved", club: "salzol:club", freq: "salzol:freq", changes: "salzol:changes", baskets: "salzol:baskets", recfb: "salzol:recfb" };
+
+const MAX_BASKETS = 30;
+
+/** One log line per engine event; the many per-file "check" events are left out. */
+function logEvent(tag: string, e: SyncEvent) {
+  if (e.phase === "check") return;
+  dlog(tag, e.phase, { store: e.store, file: e.file, items: e.items, bytes: e.bytes, ms: e.ms, message: e.message });
+}
 
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
@@ -67,6 +81,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [freq, setFreq] = useState<Freq>({});
   const [changes, setChanges] = useState<Change[]>([]);
+  const [baskets, setBaskets] = useState<Basket[]>([]);
+  const [recFeedback, setRecFeedback] = useState<Feedback>(emptyFeedback());
   const shown = useRef<Catalog | null>(null); // the catalog on screen, to compare the next one against
   const busy = useRef(false);
   const lastDiscover = useRef<number | null>(null);
@@ -90,7 +106,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const discover = useCallback(async (p: Place | null) => {
     if (!engine.discover || !shouldCheckDiscovery(lastDiscover.current, Date.now())) return;
     lastDiscover.current = Date.now();
-    const run = engine.discover(e => setSync(s => ({ ...s, events: [...s.events, e] }))).then(r => r, () => null);
+    dlog("discover", "start");
+    const run = engine.discover(e => { logEvent("discover", e); setSync(s => ({ ...s, events: [...s.events, e] })); })
+      .then(r => { dlog("discover", "result", r); return r; }, err => { dlog("error", "discover failed", String(err?.message ?? err)); return null; });
     const first = await Promise.race([run, sleep(DISCOVER_WAIT_MS).then(() => undefined)]);
     if (first !== undefined) return noteFrom(first);
     run.then(async r => {
@@ -106,9 +124,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!p && engine.kind === "device") return; // the phone needs a location to choose stores
     busy.current = true;
     setSync(s => ({ running: true, events: [], error: null, note: s.note }));
+    const t0 = Date.now();
+    dlog("sync", "start", p ? { place: p.place, lat: +p.lat.toFixed(3), lon: +p.lon.toFixed(3), radius: p.radius, engine: engine.kind } : { engine: engine.kind });
     try {
       await discover(p);
-      const c = await engine.sync(p, e => setSync(s => ({ ...s, events: [...s.events, e] })));
+      const c = await engine.sync(p, e => { logEvent("sync", e); setSync(s => ({ ...s, events: [...s.events, e] })); });
+      dlog("sync", "done", { ms: Date.now() - t0, stores: c.stores.length, products: c.products.length, version: c.version ?? 0, skipped: c.skipped });
       // What moved since the catalog we were showing: the files say when a price changed, this says which way.
       if (shown.current && shown.current !== c) {
         const moved = diffCatalogs(shown.current, c, today());
@@ -118,6 +139,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setCatalog(c);
       setSync(s => ({ ...s, running: false }));
     } catch (e) {
+      dlog("error", "sync failed", e instanceof Error ? e.message : String(e));
       setSync(s => ({ ...s, running: false, error: e instanceof Error ? e.message : String(e) }));
     } finally {
       busy.current = false;
@@ -128,7 +150,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // Start-up: saved state first, then the last catalog, then a refresh (fast when nothing is new).
   useEffect(() => {
     (async () => {
-      const [c, p, o, sv, cl, fq, ch] = await Promise.all([load<Cart>(KEY.cart, {}), load<Place | null>(KEY.place, null), load<string[]>(KEY.off, []), load<SavedList[]>(KEY.saved, []), load<ClubPrefs>(KEY.club, {}), load<Freq>(KEY.freq, {}), load<Change[]>(KEY.changes, [])]);
+      installCrashLogging();
+      await loadLog();
+      dlog("app", "start");
+      const [c, p, o, sv, cl, fq, ch, bs, rf] = await Promise.all([load<Cart>(KEY.cart, {}), load<Place | null>(KEY.place, null), load<string[]>(KEY.off, []), load<SavedList[]>(KEY.saved, []), load<ClubPrefs>(KEY.club, {}), load<Freq>(KEY.freq, {}), load<Change[]>(KEY.changes, []), load<Basket[]>(KEY.baskets, []), load<Feedback>(KEY.recfb, emptyFeedback())]);
+      setBaskets(Array.isArray(bs) ? bs : []);
+      setRecFeedback(rf && rf.dismissed ? expire(rf, Date.now()) : emptyFeedback());
       setCart(c); setPlace(p); setOff(o); setSaved(Array.isArray(sv) ? sv : []); setClubState(cl);
       setFreq(fq && typeof fq === "object" ? fq : {}); setChanges(Array.isArray(ch) ? mergeChanges(ch, [], today()) : []);
       const cached = await engine.cached(p).catch(() => null);
@@ -155,7 +182,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
   });
 
   const value: Ctx = {
-    catalog, products, active, cart, place, sync, comparison, deals, club, ready, saved, freq, changes,
+    catalog, products, active, cart, place, sync, comparison, deals, club, ready, saved, freq, changes, baskets, recFeedback,
+    dismissRec(r) {
+      setRecFeedback(prev => { const next = dismiss(prev, r, Date.now()); save(KEY.recfb, next); return next; });
+      dlog("recommend", "dismissed", { code: r.p.code, source: r.source });
+    },
+    acceptRec(r) {
+      setRecFeedback(prev => { const next = accept(prev, r); save(KEY.recfb, next); return next; });
+      value.addMany({ [r.p.code]: r.qty });
+    },
     addMany(items) {
       used(Object.keys(items));
       setCart(prev => {
@@ -200,7 +235,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return next;
       });
     },
-    clearCart() { setCart({}); save(KEY.cart, {}); },
+    // Emptying a cart that had things in it means a shopping trip is over: remember the basket
+    // (what was bought together, how much, how often) for the recommendations.
+    clearCart() {
+      if (Object.keys(cart).length) {
+        setBaskets(prev => { const next = [...prev, { at: Date.now(), items: { ...cart } }].slice(-MAX_BASKETS); save(KEY.baskets, next); return next; });
+        dlog("cart", "basket recorded", { items: Object.keys(cart).length });
+      }
+      setCart({}); save(KEY.cart, {});
+    },
     toggleStore(id) {
       setOff(prev => {
         const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];

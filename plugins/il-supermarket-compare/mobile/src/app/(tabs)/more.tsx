@@ -22,6 +22,7 @@ export default function More() {
     { icon: "notifications-outline", title: "מה חדש", hint: "מבצעים וירידות מחיר שמצאנו עבורכם", to: "/inbox", badge: unread },
     { icon: "alarm-outline", title: "התראות", hint: "מה להתריע, מתי, ובאילו שעות לא להפריע", to: "/notifications" },
     { icon: "bookmark-outline", title: "רשימות שמורות", hint: saved.length ? `${saved.length} רשימות` : "שמרו את הסל כרשימה לשבוע הבא", to: "/saved" },
+    { icon: "bug-outline", title: "יומן אבחון", hint: "מה קרה בעדכוני המחירים, לשיתוף כשמשהו לא עובד", to: "/debug" },
     { icon: "settings-outline", title: "הגדרות", hint: "טווח, עלות נסיעה, כרטיסי מועדון, שפה ומקורות הנתונים", to: "/settings" },
   ];
   return (

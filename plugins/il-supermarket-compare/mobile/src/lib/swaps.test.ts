@@ -169,3 +169,24 @@ test("applySwap moves the quantity to the alternative and totalSaving adds the b
   const c = mk([["1", "סוכר סוגת 1 ק״ג", "pantry", [500, null, null]], ["2", "סוכר 1 ק״ג", "pantry", [380, null, null]], ["3", "אורז אסם 1 ק״ג", "pantry", [900, null, null]], ["4", "אורז 1 ק״ג", "pantry", [800, null, null]]]);
   assert.equal(totalSaving(run(c, { "1": 1, "3": 1 })), 120 + 100);
 });
+
+test("equivalents: the same staple across brands, cheapest per unit first, the product itself included", async () => {
+  const { equivalents } = await import("./swaps.ts");
+  const { toProducts } = await import("./compare.ts");
+  const c = {
+    priceDate: "", generatedAt: "", skipped: [], categories: [], areas: [],
+    stores: [0, 1].map(i => ({ id: `s${i}:1`, chain: `c${i}`, branch: "", address: "", lat: 32, lon: 34.8, approx: false })),
+    products: [
+      ["1", "חלב תנובה 3% 1 ליטר", "dairy", 0, [700, 720], null, null],
+      ["2", "חלב טרה 3% 1 ליטר", "dairy", 0, [650, 690], null, null],
+      ["3", "חלב יטבתה 3% 1 ליטר", "dairy", 0, [null, 760], null, null],
+      ["4", "חלב תנובה 1% 1 ליטר", "dairy", 0, [600, 600], null, null],   // 1% is not 3%
+      ["5", "חלב תנובה 3% 2 ליטר", "dairy", 0, [1200, 1250], null, null], // twice the size
+      ["6", "במבה 80 גרם", "snacks", 0, [450, 400], null, null],
+    ],
+  };
+  const ps = toProducts(c as never);
+  const eq = equivalents(ps.get("1")!, ps, [0, 1]);
+  assert.deepEqual(eq.map(e => [e.p.code, e.store, e.price, e.brandChange]), [["2", 0, 650, true], ["1", 0, 700, false], ["3", 1, 760, true]]);
+  assert.deepEqual(equivalents(ps.get("6")!, ps, [0, 1]), []); // nothing to compare with
+});

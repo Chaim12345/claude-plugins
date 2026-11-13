@@ -105,3 +105,29 @@ export function SearchButton({ onPress }: { onPress: () => void }) {
     </Pressable>
   );
 }
+
+/** A "for you" card: the product, why it is suggested, the price, add (usual quantity) and "not interested". */
+export function RecCard({ p, reason, price, qty, inCart, onAdd, onDismiss, onOpen }: { p: Product; reason: string; price: number; qty: number; inCart: number; onAdd: () => void; onDismiss: () => void; onOpen: () => void }) {
+  const t = useTheme();
+  return (
+    <View style={{ width: 168, backgroundColor: t.surface, borderRadius: 14, padding: 10, gap: 6 }}>
+      <Pressable onPress={onOpen} accessibilityRole="button" accessibilityLabel={`${p.name}. ${reason}`} style={{ gap: 6 }}>
+        <View style={{ alignItems: "center" }}><ProductImage p={p} size={84} /></View>
+        <T numberOfLines={2} style={{ fontSize: 13.5, fontWeight: "600", lineHeight: 17.5, minHeight: 35 }}>{p.name}</T>
+      </Pressable>
+      <Pressable onPress={onDismiss} accessibilityRole="button" accessibilityLabel={`לא מעניין: ${p.name}`} hitSlop={10}
+        style={{ position: "absolute", top: 6, left: 6, width: 28, height: 28, borderRadius: 14, backgroundColor: t.surface2, alignItems: "center", justifyContent: "center" }}>
+        <Ionicons name="close" size={16} color={t.ink2} />
+      </Pressable>
+      <T numberOfLines={2} style={{ fontSize: 11.5, lineHeight: 15, color: t.brand, fontWeight: "600", minHeight: 30 }}>{reason}</T>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+        <PriceTag agorot={price} />
+        <Pressable onPress={onAdd} accessibilityRole="button" accessibilityLabel={`הוספה לסל: ${p.name}${qty !== 1 ? `, ${qty}` : ""}`} hitSlop={8}
+          style={({ pressed }) => ({ minWidth: 40, height: 36, paddingHorizontal: 8, borderRadius: 18, backgroundColor: inCart ? t.brandSoft : t.brand, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 2, opacity: pressed ? 0.85 : 1 })}>
+          {inCart ? <Text style={{ color: t.brand, fontWeight: "800", fontSize: 14 }}>{inCart}</Text>
+            : <><Ionicons name="add" size={20} color={t.brandInk} />{qty !== 1 ? <Text style={{ color: t.brandInk, fontWeight: "800", fontSize: 13 }}>{qty}</Text> : null}</>}
+        </Pressable>
+      </View>
+    </View>
+  );
+}
