@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
                 il.salzol.core.droid.Droid.setPlace(i.getStringExtra("place") ?: "בדיקה", i.getDoubleExtra("lat", 0.0), i.getDoubleExtra("lon", 0.0), i.getDoubleExtra("radius", 4.0))
             }
             i.getStringExtra("tab")?.let { startTab = it }
+            i.getStringExtra("product")?.let { startTab = "product/" + android.net.Uri.encode(it) } // from a notification
         }
         setContent { SalzolTheme { AppRoot() } }
     }
@@ -61,7 +62,12 @@ fun AppRoot() {
     val nav = rememberNavController()
     val tick by Bus.tick.collectAsState()
     var status by remember { mutableStateOf<StatusView?>(null) }
-    LaunchedEffect(tick) { status = Go.status() }
+    val evType by Bus.type.collectAsState()
+    val appCtx = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(tick) {
+        status = Go.status()
+        if (evType == "catalog") postNotices(appCtx, Go.io { il.salzol.core.droid.Droid.takeNotices() })
+    }
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route ?: "home"
     val st = status
@@ -104,6 +110,13 @@ fun AppRoot() {
                 composable("location") { LocationScreen(nav) }
                 composable("stores") { StoresScreen(nav) }
                 composable("ai") { AIScreen(nav) }
+                composable("changes") { ChangesScreen(nav) }
+                composable("watch") { WatchScreen(nav) }
+                composable("lists") { ListsScreen(nav) }
+                composable("paste") { PasteScreen(nav) }
+                composable("analysis") { AnalysisScreen(nav) }
+                composable("log") { LogScreen(nav) }
+                composable("shop?store={store}", arguments = listOf(navArgument("store") { type = NavType.StringType; defaultValue = "" })) { ShopScreen(nav, it.arguments?.getString("store") ?: "") }
                 composable("product/{code}", arguments = listOf(navArgument("code") { type = NavType.StringType })) {
                     ProductScreen(nav, it.arguments?.getString("code") ?: "")
                 }

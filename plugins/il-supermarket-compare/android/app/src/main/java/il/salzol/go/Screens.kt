@@ -64,6 +64,15 @@ fun HomeScreen(nav: NavHostController) {
                     Text("${h.status.cartCount} מוצרים · להשוואה המלאה", color = P.brand, fontSize = 13.sp)
                 }
             }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(Triple("מחירים שזזו", Icons.Outlined.TrendingDown, "changes"), Triple("המעקב שלי", Icons.Outlined.Visibility, "watch"), Triple("רשימות", Icons.Outlined.Bookmarks, "lists")).forEach { (label, icon, route) ->
+                        Column(Modifier.weight(1f).background(P.surface, Round).clickable { nav.navigate(route) }.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(icon, null, tint = P.brand); Text(label, fontSize = 12.5.sp, color = P.ink, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
             if (h.mine.isNotEmpty()) item { DealRow(nav, "במבצע ממה שאתם קונים", "מהסל, מהמוצרים הקבועים ומהמעקב", h.mine) }
             if (h.best.isNotEmpty()) item { DealRow(nav, "המבצעים הכי שווים השבוע", "הנחה אמיתית מול המחיר הרגיל הזול באזור", h.best) }
             if (h.cheapest.isNotEmpty()) item {
@@ -153,8 +162,22 @@ fun ProductsScreen(nav: NavHostController, startCat: String) {
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.background(P.surface).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth(), singleLine = true, placeholder = { Text("חיפוש מוצר, יצרן או סוג") },
-                leadingIcon = { Icon(Icons.Outlined.Search, null) }, trailingIcon = { if (q.isNotEmpty()) IconButton(onClick = { q = "" }) { Icon(Icons.Outlined.Close, "ניקוי") } })
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            var notFound by remember { mutableStateOf("") }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(q, { q = it }, Modifier.weight(1f), singleLine = true, placeholder = { Text("חיפוש מוצר, יצרן או סוג") },
+                    leadingIcon = { Icon(Icons.Outlined.Search, null) }, trailingIcon = { if (q.isNotEmpty()) IconButton(onClick = { q = "" }) { Icon(Icons.Outlined.Close, "ניקוי") } })
+                IconButton(onClick = {
+                    scanBarcode(ctx) { code ->
+                        scope.launch {
+                            val found = Go.lookup(code)
+                            if (found.isNotEmpty()) nav.openProduct(found) else notFound = "הברקוד $code לא נמכר בסניפים שבהשוואה"
+                        }
+                    }
+                }) { Icon(Icons.Outlined.QrCodeScanner, "סריקת ברקוד", tint = P.ink) }
+                IconButton(onClick = { nav.navigate("paste") }) { Icon(Icons.Outlined.ContentPaste, "הדבקת רשימה", tint = P.ink) }
+            }
+            if (notFound.isNotEmpty()) Hint(notFound, P.warn)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Chip("הכל", cat.isEmpty()) { cat = "" }
                 st?.categories?.forEach { c -> Chip(c.name, cat == c.id) { cat = if (cat == c.id) "" else c.id } }
@@ -187,7 +210,13 @@ fun ProductScreen(nav: NavHostController, code: String) {
         Row(Modifier.fillMaxWidth().background(P.surface).padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { nav.popBackStack() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "חזרה") }
             Text("מחירים בכל הסניפים", fontWeight = FontWeight.Bold, color = P.ink, modifier = Modifier.weight(1f))
-            if (p != null && p.found) IconButton(onClick = { scope.launch { Go.toggleWatch(code); Bus.poke() } }) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val askNotify = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
+            if (p != null && p.found) IconButton(onClick = {
+                if (!p.watched && android.os.Build.VERSION.SDK_INT >= 33 && androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                    askNotify.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                scope.launch { Go.toggleWatch(code); Bus.poke() }
+            }) {
                 Icon(if (p.watched) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff, if (p.watched) "מפסיקים לעקוב" else "מעקב אחרי המחיר", tint = if (p.watched) P.brand else P.ink2)
             }
         }
@@ -280,6 +309,14 @@ fun CartScreen(nav: NavHostController) {
                     if (c.splitStores > 1) Text("קנייה בכל מוצר בסניף הזול שלו: ${c.split} ₪ ב־${c.splitStores} סניפים", color = P.brandInk, fontSize = 13.sp)
                 }
             }
+            item {
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { nav.navigate("shop?store=") }, Modifier.weight(1f).height(48.dp)) { Icon(Icons.Outlined.Checklist, null); Spacer(Modifier.width(6.dp)); Text("יוצאים לקנות", fontWeight = FontWeight.Bold) }
+                    OutlinedIconButton(onClick = { scope.launch { shareText(ctx, Go.cartText(), "שיתוף הרשימה") } }, Modifier.size(48.dp)) { Icon(Icons.Outlined.Share, "שיתוף") }
+                    OutlinedIconButton(onClick = { nav.navigate("lists") }, Modifier.size(48.dp)) { Icon(Icons.Outlined.BookmarkAdd, "שמירה כרשימה") }
+                }
+            }
             item { SectionHead("לפי סניף", "מבצעים נספרים; סניף שחסרים בו מוצרים מופיע בהמשך") }
             items(c.rows) { r ->
                 Column(Modifier.fillMaxWidth().background(P.surface, Round).padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -295,6 +332,11 @@ fun CartScreen(nav: NavHostController) {
                     }
                     if (r.missing.isNotEmpty()) Hint("חסרים: " + r.missing.joinToString(", "), P.warn)
                     if (r.doubt.isNotEmpty()) Hint("אולי לא על המדף: " + r.doubt.joinToString(", "), P.ink2)
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { nav.navigate("shop?store=" + android.net.Uri.encode(r.storeId)) }) { Text("קונים כאן", color = P.brand) }
+                        if (r.lat != 0.0) TextButton(onClick = { navigateTo(ctx, r.lat, r.lon, r.store) }) { Text("ניווט", color = P.brand) }
+                    }
                 }
             }
             item { SectionHead("המוצרים", "כל מוצר והסניף הזול שלו") }

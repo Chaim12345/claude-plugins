@@ -40,6 +40,21 @@ object Go {
     suspend fun sync() = io { Droid.sync() }
     suspend fun geocode(q: String) = io { JSONObject(Droid.geocode(q)) }
 
+    suspend fun changes() = io { ChangesView(JSONObject(Droid.changes())) }
+    suspend fun watched() = io { JSONArray(Droid.watched()).let { a -> (0 until a.length()).map { ItemView(a.getJSONObject(it)) } } }
+    suspend fun lists() = io { JSONArray(Droid.lists()).let { a -> (0 until a.length()).map { ListView(a.getJSONObject(it)) } } }
+    suspend fun analysis() = io { AnalysisView(JSONObject(Droid.analysis())) }
+    suspend fun logText() = io { Droid.logText() }
+    suspend fun cartText() = io { Droid.cartText() }
+    suspend fun shop(storeId: String) = io { ShopView(JSONObject(Droid.shop(storeId))) }
+    suspend fun setChecked(code: String, on: Boolean) = io { Droid.setChecked(code, on) }
+    suspend fun saveList(name: String) = io { Droid.saveList(name) }
+    suspend fun loadList(id: String, merge: Boolean) = io { Droid.loadList(id, merge) }
+    suspend fun deleteList(id: String) = io { Droid.deleteList(id) }
+    suspend fun parseList(text: String) = io { JSONArray(Droid.parseList(text)).let { a -> (0 until a.length()).map { ListMatch(a.getJSONObject(it)) } } }
+    suspend fun addMany(items: Map<String, Double>) = io { Droid.addMany(JSONObject(items as Map<*, *>).toString()) }
+    suspend fun lookup(barcode: String) = io { Droid.lookup(barcode) }
+
     suspend fun setAI(cfg: JSONObject) = io { Droid.setAI(cfg.toString()) }
     suspend fun testAI() = io { Droid.testAI() }
     suspend fun models() = io { JSONObject(Droid.models()) }
@@ -121,6 +136,7 @@ class CartLine(o: JSONObject) {
 }
 
 class CartRow(o: JSONObject) {
+    val storeId = o.s("storeId"); val lat = o.d("lat"); val lon = o.d("lon")
     val store = o.s("store"); val km = o.d("km"); val total = o.s("total"); val shelf = o.s("shelf"); val deals = o.i("deals")
     val missing = o.strings("missing"); val doubt = o.strings("doubt"); val best = o.b("best")
 }
@@ -160,4 +176,49 @@ class AIView(o: JSONObject) {
     val verdicts: Map<String, Int> = o.optJSONObject("verdicts")?.let { v -> v.keys().asSequence().associateWith { v.optInt(it) } } ?: emptyMap()
     val run = o.optJSONObject("run")?.let { AIRun(it) }
     val presets = o.list("presets") { PresetView(it) }
+}
+
+class MoveView(o: JSONObject) {
+    val code = o.s("code"); val name = o.s("name"); val store = o.s("store"); val from = o.s("from"); val to = o.s("to")
+    val pct = o.i("pct"); val day = o.s("day"); val mine = o.b("mine"); val img = o.s("img")
+}
+
+class Notice(o: JSONObject) { val at = o.optLong("at"); val code = o.s("code"); val title = o.s("title"); val body = o.s("body") }
+
+class ChangesView(o: JSONObject) {
+    val down = o.list("down") { MoveView(it) }; val up = o.list("up") { MoveView(it) }; val total = o.i("total")
+    val notices = o.list("notices") { Notice(it) }
+}
+
+class ListView(o: JSONObject) { val id = o.s("id"); val name = o.s("name"); val count = o.i("count"); val names = o.strings("names"); val at = o.s("at") }
+
+class ShopItem(o: JSONObject) {
+    val code = o.s("code"); val name = o.s("name"); val qty = o.d("qty"); val price = o.s("price"); val deal = o.s("deal")
+    val checked = o.b("checked"); val stale = o.b("stale"); val img = o.s("img")
+}
+
+class ShopGroup(o: JSONObject) { val cat = o.s("cat"); val items = o.list("items") { ShopItem(it) } }
+
+class ShopView(o: JSONObject) {
+    val store = o.s("store"); val storeId = o.s("storeId"); val total = o.s("total"); val groups = o.list("groups") { ShopGroup(it) }
+    val missing = o.strings("missing"); val done = o.i("done"); val of = o.i("of"); val lat = o.d("lat"); val lon = o.d("lon"); val address = o.s("address")
+    val stores = o.list("stores") { LabelN(it) }
+}
+
+class ListMatch(o: JSONObject) {
+    val line = o.s("line"); val qty = o.d("qty"); val code = o.s("code"); val name = o.s("name"); val price = o.s("price")
+    val alts = o.list("alts") { LabelN(it) }
+}
+
+class BrandRow(o: JSONObject) { val brand = o.s("brand"); val n = o.i("n"); val types = o.i("types"); val pct = o.i("pct"); val own = o.b("own") }
+
+class TypeRow(o: JSONObject) {
+    val type = o.s("type"); val n = o.i("n"); val brands = o.i("brands"); val code = o.s("code"); val name = o.s("name")
+    val unit = o.s("unit"); val savePct = o.i("savePct"); val median = o.s("median"); val where = o.s("where")
+}
+
+class AnalysisView(o: JSONObject) {
+    val total = o.i("total"); val done = o.i("done"); val unsure = o.i("unsure"); val brandCount = o.i("brandCount"); val typeCount = o.i("typeCount")
+    val cheap = o.list("cheap") { BrandRow(it) }; val dear = o.list("dear") { BrandRow(it) }; val own = o.list("own") { BrandRow(it) }
+    val types = o.list("types") { TypeRow(it) }; val diets = o.list("diets") { LabelN(it) }
 }

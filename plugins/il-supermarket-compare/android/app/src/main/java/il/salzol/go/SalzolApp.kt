@@ -67,6 +67,7 @@ class RefreshWorker(ctx: android.content.Context, params: WorkerParameters) : Co
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         Droid.open(applicationContext.filesDir.absolutePath)
         val err = Droid.refreshNow(8 * 60)
+        postNotices(applicationContext, Droid.takeNotices()) // watched products that got cheaper
         if (err.isEmpty()) Result.success() else Result.retry()
     }
 }

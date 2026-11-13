@@ -438,6 +438,9 @@ type CartLine struct {
 }
 
 type CartRow struct {
+	StoreID string   `json:"storeId"`
+	Lat     float64  `json:"lat"`
+	Lon     float64  `json:"lon"`
 	Store   string   `json:"store"`
 	Km      float64  `json:"km"`
 	Total   string   `json:"total"`
@@ -471,8 +474,13 @@ func (e *Engine) Cart() CartView {
 	}
 	complete := []int{}
 	for k, r := range cmp.Rows {
-		v.Rows = append(v.Rows, CartRow{Store: e.ix.StoreName(r.Store), Km: e.km(e.ix.Stores[r.Store]), Total: shop.Money(float64(r.Total)), Shelf: shop.Money(float64(r.Shelf)),
-			Deals: r.Deals, Missing: r.Missing, Doubt: r.Doubt, Best: k == 0})
+		s := e.ix.Stores[r.Store]
+		row := CartRow{StoreID: s.ID, Store: e.ix.StoreName(r.Store), Km: e.km(s), Total: shop.Money(float64(r.Total)), Shelf: shop.Money(float64(r.Shelf)),
+			Deals: r.Deals, Missing: r.Missing, Doubt: r.Doubt, Best: k == 0}
+		if s.Lat != nil && s.Lon != nil {
+			row.Lat, row.Lon = *s.Lat, *s.Lon
+		}
+		v.Rows = append(v.Rows, row)
 		if len(r.Missing) == 0 {
 			complete = append(complete, r.Total)
 		}

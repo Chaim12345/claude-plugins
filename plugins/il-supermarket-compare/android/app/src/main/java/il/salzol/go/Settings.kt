@@ -58,6 +58,10 @@ fun MoreScreen(nav: NavHostController) {
         LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { MoreRow(Icons.Outlined.Place, "מיקום", st?.place?.name?.let { "$it · ${st.place?.radius?.toInt()} ק״מ" } ?: "בחירת מיקום") { nav.navigate("location") } }
             item { MoreRow(Icons.Outlined.Storefront, "סניפים וכרטיסי מועדון", "${st?.stores?.count { it.on } ?: 0} מתוך ${st?.stores?.size ?: 0} סניפים בהשוואה") { nav.navigate("stores") } }
+            item { MoreRow(Icons.Outlined.Visibility, "המעקב שלי", "מוצרים שאתם עוקבים אחריהם, והתראה כשהם מוזלים") { nav.navigate("watch") } }
+            item { MoreRow(Icons.Outlined.TrendingDown, "מחירים שזזו", "מה הוזל ומה התייקר מאז העדכונים הקודמים") { nav.navigate("changes") } }
+            item { MoreRow(Icons.Outlined.Bookmarks, "רשימות שמורות", "שמרו את הסל לשבוע הבא") { nav.navigate("lists") } }
+            item { MoreRow(Icons.Outlined.Analytics, "ניתוח נתונים", "מותגים זולים ויקרים, מותג פרטי, הכי זול ליחידה בכל סוג") { nav.navigate("analysis") } }
             item {
                 val run = st?.aiRun
                 MoreRow(Icons.Outlined.AutoAwesome, "בינה מלאכותית", when {
@@ -75,6 +79,7 @@ fun MoreScreen(nav: NavHostController) {
                     Hint("התמונות נטענות מאתרי הרשתות.")
                 }
             }
+            item { MoreRow(Icons.Outlined.BugReport, "יומן אבחון", "מה קרה בעדכוני המחירים, לשיתוף כשמשהו לא עובד") { nav.navigate("log") } }
             item {
                 Panel {
                     Text("על המחירים", fontWeight = FontWeight.Bold, color = P.ink)
