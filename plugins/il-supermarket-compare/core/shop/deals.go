@@ -35,6 +35,7 @@ type Deal struct {
 	HasEnd     bool
 	Confidence string // "ok" or "check"
 	Why        string // why "check", in Hebrew
+	CheckKind  string // "words", "spread" or "deep": which test raised "check"
 	AI         string // the model's answer: "yes", "no", "unclear" ("" = not asked)
 }
 
@@ -123,11 +124,11 @@ func (ix *Index) BuildDeals(active []int, club Club, now time.Time) []*Deal {
 		}
 		switch {
 		case d.Why == "spread":
-			d.Confidence, d.Why = "check", "המבצע רשום על כמה מוצרים במחירים שונים מאוד"
+			d.Confidence, d.CheckKind, d.Why = "check", "spread", "המבצע רשום על כמה מוצרים במחירים שונים מאוד"
 		case !NamesProduct(d.Promo.Desc, d.P.Name) && len(d.Promo.Codes) >= 2:
-			d.Confidence, d.Why = "check", "נוסח המבצע: ״"+d.Promo.Desc+"״"
+			d.Confidence, d.CheckKind, d.Why = "check", "words", "נוסח המבצע: ״"+d.Promo.Desc+"״"
 		case d.RealPct > 60:
-			d.Confidence, d.Why = "check", "הנחה חריגה במיוחד"
+			d.Confidence, d.CheckKind, d.Why = "check", "deep", "הנחה חריגה במיוחד"
 		default:
 			d.Why = ""
 		}
