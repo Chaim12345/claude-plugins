@@ -3,6 +3,7 @@ import { memo } from "react";
 import { Pressable, Text, View } from "react-native";
 import { dealText, money } from "../lib/compare";
 import { endLabel, isEndingSoon, type DealItem } from "../lib/dealsFeed";
+import { useSettings } from "../lib/settings";
 import { unitText } from "../lib/units";
 import { Button, Num, PriceTag, ProductImage, Stepper, T, useTheme } from "./ui";
 
@@ -25,6 +26,7 @@ type Props = {
  */
 export const DealCard = memo(function DealCard({ d, catalogStores, now, qty, add, setQty, open, width, mine }: Props) {
   const t = useTheme();
+  const { t: tr } = useSettings();
   const p = d.product;
   const chainOf = (i: number) => catalogStores[i]?.chain ?? "";
   const soon = isEndingSoon(d, now);
@@ -40,7 +42,7 @@ export const DealCard = memo(function DealCard({ d, catalogStores, now, qty, add
   const detail = real ? `${pct}% מתחת לזול באזור` : d.verdict === "notCheapest" ? `${money(d.cheapest)} ₪ במחיר רגיל` : "רק בסניף אחד, אין השוואה";
   return (
     <View style={[{ backgroundColor: t.surface, borderRadius: 14, padding: 10, gap: 6, borderWidth: mine ? 1.5 : 0, borderColor: t.brand }, width ? { width } : null]}>
-      <Pressable onPress={() => open(p.code)} accessibilityRole="button" accessibilityLabel={`${p.name}. ${dealText(d.promo)} ב${d.chainLabel}. ${headline}. ${detail}${check ? ". לבדוק בקופה" : ""}`} style={{ gap: 6 }}>
+      <Pressable onPress={() => open(p.code)} accessibilityRole="button" accessibilityLabel={`${p.name}. ${dealText(d.promo)} ב${d.chainLabel}. ${headline}. ${detail}${check ? ". לבדוק בקופה" : d.ai === "yes" ? `. ${tr("deals.aiYes")}` : ""}`} style={{ gap: 6 }}>
         <View>
           <ProductImage p={p} size="fill" />
           {real && pct > 0 ? (
@@ -68,7 +70,12 @@ export const DealCard = memo(function DealCard({ d, catalogStores, now, qty, add
       {check ? (
         <View style={{ flexDirection: "row", gap: 4, alignItems: "flex-start", backgroundColor: t.warn + "1a", borderRadius: 8, padding: 6 }}>
           <Ionicons name="alert-circle-outline" size={14} color={t.warn} style={{ marginTop: 1 }} />
-          <T numberOfLines={2} style={{ flex: 1, fontSize: 11.5, lineHeight: 15, color: t.warn }}>לבדוק בקופה: {d.why}</T>
+          <T numberOfLines={2} style={{ flex: 1, fontSize: 11.5, lineHeight: 15, color: t.warn }}>לבדוק בקופה: {d.why}{d.ai === "unclear" ? ` · ${tr("deals.aiUnclear")}` : ""}</T>
+        </View>
+      ) : d.ai === "yes" ? (
+        <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
+          <Ionicons name="sparkles-outline" size={13} color={t.good} />
+          <T numberOfLines={1} style={{ flex: 1, fontSize: 11.5, color: t.good }}>{tr("deals.aiYes")}</T>
         </View>
       ) : null}
       <View style={{ gap: 1 }}>

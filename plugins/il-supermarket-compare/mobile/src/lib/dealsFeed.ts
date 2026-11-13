@@ -50,6 +50,10 @@ export type DealItem = {
    */
   confidence: "ok" | "check";
   why?: string; // the reason for "check", in Hebrew
+  /** Which test raised "check": the promotion's wording, a wide price spread, or an implausibly deep discount. */
+  checkKind?: "words" | "spread" | "deep";
+  /** What a language model said about whether the promotion covers this product (aicheck.ts), when the user set one up. */
+  ai?: "yes" | "unclear";
 };
 
 const DAY = 86_400_000;
@@ -131,9 +135,9 @@ export function buildDeals(c: Catalog, products: Map<string, Product>, opts: Bui
     d.unitPrice = unitPrice(z, d.unit);
     d.shelfUnitPrice = unitPrice(z, d.shelf);
     const named = namesProduct(d.promo.desc, d.product.name);
-    if (d.why === "spread") { d.confidence = "check"; d.why = "המבצע רשום על כמה מוצרים במחירים שונים מאוד"; }
-    else if (!named && d.promo.codes.length >= 2) { d.confidence = "check"; d.why = `נוסח המבצע: ״${d.promo.desc}״`; }
-    else if (d.realPct > 60) { d.confidence = "check"; d.why = "הנחה חריגה במיוחד"; }
+    if (d.why === "spread") { d.confidence = "check"; d.checkKind = "spread"; d.why = "המבצע רשום על כמה מוצרים במחירים שונים מאוד"; }
+    else if (!named && d.promo.codes.length >= 2) { d.confidence = "check"; d.checkKind = "words"; d.why = `נוסח המבצע: ״${d.promo.desc}״`; }
+    else if (d.realPct > 60) { d.confidence = "check"; d.checkKind = "deep"; d.why = "הנחה חריגה במיוחד"; }
     else d.why = undefined;
   }
   return items;

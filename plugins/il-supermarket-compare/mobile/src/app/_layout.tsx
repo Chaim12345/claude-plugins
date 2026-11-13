@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { AiProvider } from "../lib/ai";
 import { Onboarding } from "../components/Onboarding";
 import { useTheme } from "../components/ui";
 import { SettingsProvider } from "../lib/settings";
@@ -14,6 +15,7 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <SettingsProvider>
       <DataProvider>
+      <AiProvider>
        <WatchProvider>
         {/* direction: rtl lays the whole app out right-to-left on iOS, Android and web, with no restart. */}
         <View style={{ flex: 1, direction: "rtl", backgroundColor: t.bg }}>
@@ -38,6 +40,7 @@ export default function RootLayout() {
           <Onboarding />
         </View>
        </WatchProvider>
+      </AiProvider>
       </DataProvider>
       </SettingsProvider>
     </SafeAreaProvider>

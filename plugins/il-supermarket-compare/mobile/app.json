@@ -60,7 +60,8 @@
         }
       ],
       "expo-background-task",
-      "./plugins/withKeepRules"
+      "./plugins/withKeepRules",
+      "expo-secure-store"
     ],
     "scheme": "salzol",
     "experiments": {

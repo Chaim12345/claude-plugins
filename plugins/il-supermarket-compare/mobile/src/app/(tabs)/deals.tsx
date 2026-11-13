@@ -4,6 +4,7 @@ import { FlatList, Pressable, ScrollView, Text, View, useWindowDimensions } from
 import { SectionHead } from "../../components/blocks";
 import { DealCard } from "../../components/DealCard";
 import { Button, T, useTheme } from "../../components/ui";
+import { useAi, useAiDeals } from "../../lib/ai";
 import { chainKey } from "../../lib/compare";
 import { biggestSavings, cartQty, dealScore, defaultFilters, endingSoon, endingSoonCount, filterDeals, mineOf, onMine, sortDeals, stockUp, type ClubMode, type DealItem, type DealSort } from "../../lib/dealsFeed";
 import { dealFeed } from "../../lib/feed";
@@ -17,6 +18,7 @@ const SORTS: { id: DealSort; label: string }[] = [
 
 /** Below this real saving (agorot, for the quantity the deal needs) a deal is noise, hidden unless asked for. */
 const TRIVIAL = 100;
+const NONE: DealItem[] = [];
 
 /**
  * Deals, organised by what helps: deals on what you buy, what is worth stocking up on, the biggest
@@ -42,7 +44,8 @@ export default function DealsScreen() {
 
   const feed = useMemo(() => (catalog?.promos ? dealFeed(catalog, products, active, club) : null), [catalog, products, active, club]);
   const now = feed?.now ?? 0;
-  const all = feed?.items ?? [];
+  const all = useAiDeals(feed?.items ?? NONE, now);
+  const { status: aiStatus, ready: aiReady } = useAi();
   const hasClub = Object.values(club).some(Boolean);
   // follow the user's club settings until they choose by hand
   useEffect(() => { if (ready && !clubTouched.current) setClubMode(hasClub ? "club" : "none"); }, [ready, hasClub]);
@@ -121,6 +124,12 @@ export default function DealsScreen() {
               כל חיסכון נמדד מול המחיר הרגיל הזול ביותר בסניפים שסביבכם, לכמות שהמבצע דורש. מבצע שלא זול ממחיר רגיל בסניף אחר מסומן.
               {checked ? ` ${checked.toLocaleString("he-IL")} מבצעים מסומנים ״לבדוק בקופה״: הנתונים שלהם לא חד־משמעיים.` : ""}
             </T>
+            {aiStatus.running ? <T style={{ color: t.brand, fontSize: 12.5, fontWeight: "700" }}>בודקים מבצעים לא ברורים עם AI ({aiStatus.done}/{aiStatus.total})…</T> : null}
+            {checked && !aiReady ? (
+              <Pressable onPress={() => router.push("/settings")} accessibilityRole="link">
+                <T style={{ color: t.brand, fontSize: 12.5, fontWeight: "700" }}>אפשר לבדוק אותם אוטומטית עם מפתח Gemini חינמי (הגדרות)</T>
+              </Pressable>
+            ) : null}
           </View>
 
           {sections ? row("במבצע ממה שאתם קונים", "מהסל, מהרגילים ומהמוצרים שאתם עוקבים אחריהם", forMe) : null}

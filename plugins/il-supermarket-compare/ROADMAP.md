@@ -26,6 +26,7 @@ What the app does today, what to build next and why, and what needs help from ou
 - **Kosher filter:** matches by product name only (מהדרין, בד"ץ, גלאט), and says so.
 - **Diagnostic log:** syncs, portal errors, discovery, geocoding, background runs and crashes, with share and copy (More → יומן אבחון).
 - **Deals with conditions:** minimum-basket ("מעל 100"), gift and mix-and-match promotions are shown on the product sheet and the cart, with the chain's own wording, and never counted in totals (227 on the Ramat Gan catalog). Pricing the simple ones ("1+1" on one product) is the next step there.
+- **AI deal checks (optional):** in Settings, a free Gemini key from Google AI Studio or any OpenAI-compatible provider (OpenRouter, Groq, a custom URL). The model reads each flagged promotion's wording and its products and says covered, not covered or unclear: covered deals lose the "לבדוק בקופה" warning, the rest are hidden or keep it. Only public promotion texts and product names are sent, from the phone straight to the provider; the key stays in the phone's encrypted storage. Answers are cached until the promotion ends. Ramat Gan's 733 flagged deals take 10 requests, inside the free tier's daily limit.
 - **Product sheet:** every branch, the current best deal, how fresh each price is, the price changes the app saw, and a 30-day history for followed products.
 - **Watching:** a watchlist, the usual basket, local notifications and a daily background refresh.
 - **Also:**

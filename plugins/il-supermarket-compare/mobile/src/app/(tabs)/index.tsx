@@ -8,6 +8,7 @@ import { Button, CAT_ICON, CAT_TINT, IconBtn, Num, ProductImage, T, canScan, use
 import { fmtDate, money, priceInfo, storeKm } from "../../lib/compare";
 import { bestOfWeek, cartQty, defaultFilters, filterDeals, type DealItem } from "../../lib/dealsFeed";
 import { dealFeed } from "../../lib/feed";
+import { useAiDeals } from "../../lib/ai";
 import { dealsOnMine, priceIndex, recentlyChanged, regulars, staleFiles, summarizeChanges, topGaps } from "../../lib/insights";
 import { dueBasket, recommend } from "../../lib/recommend";
 import { useData } from "../../lib/store";
@@ -22,6 +23,8 @@ const SHORT: Record<string, string> = { produce: "פירות וירקות", meat
  * Where it's cheapest overall, today's real deals, what you usually buy, what moved in price and
  * where comparing pays most.
  */
+const NO_DEALS: DealItem[] = [];
+
 export default function Home() {
   const t = useTheme();
   const router = useRouter();
@@ -30,11 +33,12 @@ export default function Home() {
 
   const index = useMemo(() => (catalog ? priceIndex(products.values(), active) : []), [catalog, products, active]);
   const feed = useMemo(() => (catalog?.promos ? dealFeed(catalog, products, active, club) : null), [catalog, products, active, club]);
+  const checkedFeed = useAiDeals(feed?.items ?? NO_DEALS, feed?.now ?? 0);
   const usable = useMemo(() => {
     if (!feed) return [];
     const hasClub = Object.values(club).some(Boolean);
-    return filterDeals(feed.items, { ...defaultFilters, club: hasClub ? "club" : "none", onlyReal: false }).items;
-  }, [feed, club]);
+    return filterDeals(checkedFeed, { ...defaultFilters, club: hasClub ? "club" : "none", onlyReal: false }).items;
+  }, [feed, checkedFeed, club]);
   const best = useMemo(() => bestOfWeek(usable, 8), [usable]);
   // deals on what this person buys: the cart, products bought on earlier days, followed products
   const mineSet = useMemo(() => new Set([...Object.keys(cart), ...Object.keys(freq), ...watch.followed]), [cart, freq, watch.followed]);
