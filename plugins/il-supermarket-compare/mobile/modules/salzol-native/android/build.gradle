@@ -1,0 +1,23 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.salzolnative'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.salzolnative"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // The Go sync engine, built by mobile/scripts/build-go.sh (gomobile bind) into android/libs/salzol.aar.
+  implementation project(":${project.name}\$salzol-go")
+}

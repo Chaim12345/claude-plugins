@@ -1,0 +1,39 @@
+# Re-runs the product-matching experiment with LiquidAI's d1 decision model on CPU (manual start).
+# It scores the model against the hand-labelled pairs in research/d1-matching and uploads the results.
+name: d1 matching experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Hugging Face model id"
+        default: "LiquidAI/d1-omni-600M"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: plugins/il-supermarket-compare/research/d1-matching
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU PyTorch and transformers
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          pip install "transformers>=5.15" pillow soundfile
+      - name: Run the model on the pairs
+        env:
+          D1_MODEL: ${{ inputs.model }}
+        run: python run_d1.py pairs.json d1_out.json
+      - name: Score against the labels
+        run: python score.py pairs.json d1_out.json labels.txt | tee score.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: d1-matching
+          path: |
+            plugins/il-supermarket-compare/research/d1-matching/d1_out.json
+            plugins/il-supermarket-compare/research/d1-matching/score.txt

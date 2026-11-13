@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "סל זול",
+    "slug": "salzol",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "il.salzol.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1d6b47",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "il.salzol.app",
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.VIBRATE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "output": "single",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-image",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "המצלמה משמשת רק לסריקת ברקוד של מוצר, כדי להוסיף אותו לסל.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "המיקום משמש רק כדי למצוא סופרמרקטים קרובים אליך."
+        }
+      ],
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#1d6b47",
+          "defaultChannel": "deals"
+        }
+      ],
+      "expo-background-task",
+      "./plugins/withKeepRules",
+      "expo-secure-store",
+      "expo-sqlite"
+    ],
+    "scheme": "salzol",
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

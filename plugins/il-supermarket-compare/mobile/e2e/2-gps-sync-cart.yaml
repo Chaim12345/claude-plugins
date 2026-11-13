@@ -1,0 +1,54 @@
+# GPS location (the emulator is placed in Ramat Gan) -> on-device sync of real price files ->
+# add a product -> basket comparison.
+appId: il.salzol.app
+---
+- launchApp:
+    clearState: true
+# A system "isn't responding" dialog from a slow emulator can cover the app: dismiss it.
+- tapOn:
+    text: "Wait"
+    optional: true
+# First run shows the introduction: skip it.
+- extendedWaitUntil:
+    visible: "דילוג"
+    timeout: 60000
+- tapOn: "דילוג"
+- extendedWaitUntil:
+    visible: "בחירת מיקום"
+    timeout: 60000
+- tapOn:
+    text: "בחירת מיקום"
+    index: 0
+- tapOn: "המיקום הנוכחי שלי"
+- tapOn:
+    text: "(While using the app|Only this time|Allow|ALLOW)"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*סניפים להשוואה סביב.*"
+    timeout: 60000
+- takeScreenshot: gps-preview
+- tapOn: "השוואה כאן"
+# Home appears once the price files are synced and compared.
+- extendedWaitUntil:
+    visible: "קטגוריות"
+    timeout: 300000
+- takeScreenshot: home-after-sync
+- tapOn: "מוצרים"
+- extendedWaitUntil:
+    visible: "הוספה לסל"
+    timeout: 30000
+- takeScreenshot: products
+- tapOn:
+    text: "הוספה לסל"
+    index: 0
+- tapOn: "הסל.*"
+# The headline card at the top of the cart names the cheapest branch for the whole basket.
+- extendedWaitUntil:
+    visible: ".*(הסל שלכם הכי זול ב|הסניף שהכי מתאים לסל שלכם).*"
+    timeout: 30000
+- takeScreenshot: cart
+# The ranking of branches is further down.
+- scrollUntilVisible:
+    element: "איפה לקנות"
+    timeout: 20000
+- takeScreenshot: cart-ranking

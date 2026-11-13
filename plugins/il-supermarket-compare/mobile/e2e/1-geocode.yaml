@@ -1,0 +1,33 @@
+# Typed address -> Android's built-in geocoder -> nearby branches.
+# Maestro can't type Hebrew on Android, so the address is in English (Android's geocoder accepts it).
+appId: il.salzol.app
+---
+- launchApp:
+    clearState: true
+# A system "isn't responding" dialog from a slow emulator can cover the app: dismiss it.
+- tapOn:
+    text: "Wait"
+    optional: true
+# First run shows the introduction: skip it.
+- extendedWaitUntil:
+    visible: "דילוג"
+    timeout: 60000
+- tapOn: "דילוג"
+- extendedWaitUntil:
+    visible: "בחירת מיקום"
+    timeout: 60000
+- tapOn:
+    text: "בחירת מיקום"
+    index: 0
+- tapOn: "כתובת, למשל הרצל 50, רמת גן"
+- inputText: "Herzl 10, Haifa"
+- tapOn: "חיפוש"
+- tapOn:
+    text: "(While using the app|Only this time|Allow|ALLOW)"
+    optional: true
+- extendedWaitUntil:
+    visible: ".*סניפים להשוואה סביב.*"
+    timeout: 60000
+- takeScreenshot: geocode-haifa
+- assertVisible: ".*(אותר בשירות המיקום של הטלפון|אותר לפי OpenStreetMap).*"
+- assertVisible: ".*חיפה.*"

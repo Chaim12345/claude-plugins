@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A shopping basket with a yellow price tag, inside the adaptive icon's safe zone (66 of 108 dp). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- basket body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,50 L78,50 L72,78 Q71.4,81 68.4,81 L39.6,81 Q36.6,81 36,78 Z" />
+    <!-- handle -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M40,50 L48,34 M68,50 L60,34" />
+    <!-- slats -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1D6B47"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M45,57 L46.5,74 M54,57 L54,74 M63,57 L61.5,74" />
+    <!-- price tag -->
+    <path
+        android:fillColor="#F6CF3A"
+        android:pathData="M70,30 m-9,0 a9,9 0 1,1 18,0 a9,9 0 1,1 -18,0" />
+    <path
+        android:fillColor="#1B1B14"
+        android:pathData="M70,26 a2,2 0 1,1 0.01,0 Z" />
+</vector>

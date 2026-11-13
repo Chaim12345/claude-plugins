@@ -1,0 +1,72 @@
+name: UI test, Go core + Jetpack Compose
+
+# The UI framework test (research/ui-spikes): the Go core owns the 37,153 products and the search,
+# a native Compose screen draws them right-to-left. Built and run on an emulator; the timings,
+# frame statistics and screenshots are uploaded as an artifact.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "plugins/il-supermarket-compare/research/ui-spikes/**"
+      - ".github/workflows/ui-spike.yml"
+
+env:
+  SPIKE: plugins/il-supermarket-compare/research/ui-spikes/compose
+  NDK_VERSION: 27.1.12297006
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.SPIKE }}/gocore/go.mod
+          cache-dependency-path: ${{ env.SPIKE }}/gocore/go.sum
+      - name: Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+      - name: Go core as an Android library (gomobile bind)
+        working-directory: ${{ env.SPIKE }}/gocore
+        run: |
+          go test ./...
+          go install golang.org/x/mobile/cmd/gomobile@latest golang.org/x/mobile/cmd/gobind@latest
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          gomobile init
+          mkdir -p ../app/libs
+          gomobile bind -target=android/arm64,android/amd64 -androidapi 24 -javapkg il.salzol.spike -o ../app/libs/spike.aar .
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build the Compose app
+        working-directory: ${{ env.SPIKE }}
+        run: |
+          ./gradlew assembleRelease --no-daemon --console=plain
+          ls -la app/build/outputs/apk/release/
+      - name: Run on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          ram-size: 4096M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash ${{ env.SPIKE }}/run-emulator.sh
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-spike-compose
+          path: |
+            ${{ env.SPIKE }}/out/
+            ${{ env.SPIKE }}/app/build/outputs/apk/release/app-release.apk
