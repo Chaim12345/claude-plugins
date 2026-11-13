@@ -1,13 +1,13 @@
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { SectionHead } from "../../components/blocks";
 import { DealCard } from "../../components/DealCard";
 import { Button, T, useTheme } from "../../components/ui";
 import { useAi, useAiDeals } from "../../lib/ai";
 import { chainKey } from "../../lib/compare";
 import { biggestSavings, cartQty, dealScore, defaultFilters, endingSoon, endingSoonCount, filterDeals, mineOf, onMine, sortDeals, stockUp, type ClubMode, type DealItem, type DealSort } from "../../lib/dealsFeed";
-import { dealFeed } from "../../lib/feed";
+import { useDealFeed } from "../../lib/useLater";
 import { affinity } from "../../lib/recommend";
 import { useData } from "../../lib/store";
 import { useWatch } from "../../lib/watchctx";
@@ -42,7 +42,7 @@ export default function DealsScreen() {
   const clubTouched = useRef(false);
   const cols = Math.max(2, Math.min(6, Math.floor((width - 24) / 190)));
 
-  const feed = useMemo(() => (catalog?.promos ? dealFeed(catalog, products, active, club) : null), [catalog, products, active, club]);
+  const feed = useDealFeed(catalog, products, active, club); // built in slices; null for a moment on first open
   const now = feed?.now ?? 0;
   const all = useAiDeals(feed?.items ?? NONE, now);
   const { status: aiStatus, ready: aiReady } = useAi();
@@ -92,6 +92,15 @@ export default function DealsScreen() {
   }
   if (!catalog.promos) {
     return <View style={{ flex: 1, padding: 24, alignItems: "center", justifyContent: "center" }}><T style={{ textAlign: "center", color: t.ink2 }}>במחירון הזה אין נתוני מבצעים. עדכנו את המחירים כדי לטעון אותם.</T></View>;
+  }
+
+  if (!feed) {
+    return (
+      <View style={{ flex: 1, padding: 24, alignItems: "center", justifyContent: "center", gap: 12 }}>
+        <ActivityIndicator size="large" color={t.brand} />
+        <T style={{ color: t.ink2, textAlign: "center" }}>מסדר את המבצעים מכל הסניפים…</T>
+      </View>
+    );
   }
 
   const card = (d: DealItem, w?: number) => (

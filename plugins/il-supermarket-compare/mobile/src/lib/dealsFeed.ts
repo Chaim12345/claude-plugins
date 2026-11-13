@@ -78,6 +78,17 @@ const distOf = (c: Catalog, i: number) => storeKm(c, i) ?? 1e9;
  * several branches of a chain are merged. Club promotions are included and flagged (`club`, `clubOwned`); filter them with `filterDeals`.
  */
 export function buildDeals(c: Catalog, products: Map<string, Product>, opts: BuildOpts): DealItem[] {
+  const g = buildDealsSteps(c, products, opts);
+  let r = g.next();
+  while (!r.done) r = g.next();
+  return r.value;
+}
+
+/**
+ * buildDeals in slices: it pauses (yields) after each branch and every 2,000 deals, so a caller can
+ * spread the work over several frames (feed.ts) instead of freezing the screen for a second or more.
+ */
+export function* buildDealsSteps(c: Catalog, products: Map<string, Product>, opts: BuildOpts): Generator<void, DealItem[], void> {
   const now = opts.now ?? Date.now();
   const club = opts.club ?? {};
   const legacy = (c.version ?? 0) < 2; // newer catalogs price "the second one for X" as the real pair
@@ -88,6 +99,7 @@ export function buildDeals(c: Catalog, products: Map<string, Product>, opts: Bui
     const store = c.stores[i];
     if (!store) continue;
     const ck = chainKey(store.id);
+    const spreadOf = new Map<Promo, number>(); // a promotion object belongs to one branch's list
     for (const pr of c.promos?.[i] ?? []) {
       if (legacy && misModeled(pr)) continue;
       let endMs = stampMs(pr.end);
@@ -109,8 +121,9 @@ export function buildDeals(c: Catalog, products: Map<string, Product>, opts: Bui
           }
           continue;
         }
-        // one promotion over products at very different shelf prices: "any of these for X"
-        const spread = promoSpread(pr, i, products);
+        // one promotion over products at very different shelf prices: "any of these for X" (once per promotion and branch)
+        let spread = spreadOf.get(pr);
+        if (spread == null) { spread = promoSpread(pr, i, products); spreadOf.set(pr, spread); }
         out.set(id, {
           id, code, product: p, chain: ck, chainLabel: ck === "shufersal" ? "שופרסל" : store.chain, promo: pr, stores: [i], rep: i,
           qty, unit, shelf, cheapest: 0, cheapestAt: i, comparedStores: 0, savePct: 0, saveAgorot: 0, realPct: 0, realAgorot: 0,
@@ -119,9 +132,13 @@ export function buildDeals(c: Catalog, products: Map<string, Product>, opts: Bui
         });
       }
     }
+    yield; // one branch done
   }
   const items = [...out.values()];
+  const descWords = new Map<string, string[]>(), nameWords = new Map<string, string[]>();
+  let k = 0;
   for (const d of items) {
+    if (++k % 2000 === 0) yield;
     let pi = info.get(d.code);
     if (!pi) { pi = priceInfo(d.product, opts.active); info.set(d.code, pi); }
     d.cheapest = pi.lo!; d.cheapestAt = pi.at; d.comparedStores = pi.n;
@@ -134,7 +151,7 @@ export function buildDeals(c: Catalog, products: Map<string, Product>, opts: Bui
     const z = sizes.get(d.code)!;
     d.unitPrice = unitPrice(z, d.unit);
     d.shelfUnitPrice = unitPrice(z, d.shelf);
-    const named = namesProduct(d.promo.desc, d.product.name);
+    const named = namesWords(words(descWords, d.promo.desc), words(nameWords, d.product.name));
     if (d.why === "spread") { d.confidence = "check"; d.checkKind = "spread"; d.why = "המבצע רשום על כמה מוצרים במחירים שונים מאוד"; }
     else if (!named && d.promo.codes.length >= 2) { d.confidence = "check"; d.checkKind = "words"; d.why = `נוסח המבצע: ״${d.promo.desc}״`; }
     else if (d.realPct > 60) { d.confidence = "check"; d.checkKind = "deep"; d.why = "הנחה חריגה במיוחד"; }
@@ -163,9 +180,13 @@ const wordsOf = (s: string) => s.replace(/["'׳״`.,()\-+/*]/g, " ").split(/\s+/
 
 /** Does the promotion's text mention the product (a word of 3+ letters in common)? Empty text counts as yes. */
 export function namesProduct(desc: string, name: string): boolean {
-  const d = wordsOf(desc);
+  return namesWords(wordsOf(desc), wordsOf(name));
+}
+
+const words = (cache: Map<string, string[]>, s: string) => { let w = cache.get(s); if (!w) { w = wordsOf(s); cache.set(s, w); } return w; };
+
+function namesWords(d: string[], n: string[]): boolean {
   if (!d.length) return true;
-  const n = wordsOf(name);
   // Hebrew inflects word endings ("גלידה" / "גלידת"): words match on their first four letters.
   const head = (w: string) => w.slice(0, 4);
   return d.some(w => n.some(x => x.includes(w) || w.includes(x) || (w.length >= 4 && x.length >= 4 && head(w) === head(x))));
@@ -186,7 +207,18 @@ export const defaultFilters: Filters = { cat: "all", chain: "all", club: "none",
 const better = (a: DealItem, b: DealItem) => a.unit < b.unit - 1e-9 || (Math.abs(a.unit - b.unit) < 1e-9 && !a.club && b.club);
 
 /** Club filter + one card per (chain, product): when a chain has several promotions on a product, only the cheapest is kept. */
+// usable() runs several times per render of the deals screen over the same feed: remembered per feed and mode
+const usableCache = new WeakMap<DealItem[], Map<ClubMode, { items: DealItem[]; hiddenClub: number }>>();
+
 export function usable(all: DealItem[], club: ClubMode): { items: DealItem[]; hiddenClub: number } {
+  const hit = usableCache.get(all)?.get(club);
+  if (hit) return hit;
+  const r = usableUncached(all, club);
+  (usableCache.get(all) ?? usableCache.set(all, new Map()).get(all)!).set(club, r);
+  return r;
+}
+
+function usableUncached(all: DealItem[], club: ClubMode): { items: DealItem[]; hiddenClub: number } {
   let hiddenClub = 0;
   const best = new Map<string, DealItem>();
   for (const d of all) {

@@ -15,10 +15,20 @@ export type EnrichSettings = {
 export const DEFAULT_SETTINGS: EnrichSettings = { auto: true, apply: true, model: "", dailyCap: 300 };
 export const CAPS = [50, 150, 300, 1000];
 
-type Snapshot = { rows: Map<string, EnrichRow>; recs: Map<string, Enriched>; settings: EnrichSettings; usage: { day: string; requests: number }; loaded: boolean };
+/**
+ * recs: the records the app shows. Applying them re-merges the whole catalog and rebuilds every screen
+ * (seconds on a phone with 37,000 products), so new records are published at most every PUBLISH_MS,
+ * at the end of a run, or when a screen asks (publishEnrich): not on every batch.
+ * count: how many records exist now, published or not (cheap to update).
+ */
+type Snapshot = { recs: Map<string, Enriched>; count: number; settings: EnrichSettings; usage: { day: string; requests: number }; loaded: boolean };
+
+export const PUBLISH_MS = 5 * 60_000;
+const live = new Map<string, EnrichRow>(); // every record, current
+let lastPublish = 0, unpublished = 0;
 
 const SKEY = "salzol:enrich:settings", UKEY = "salzol:enrich:usage";
-let snap: Snapshot = { rows: new Map(), recs: new Map(), settings: DEFAULT_SETTINGS, usage: { day: "", requests: 0 }, loaded: false };
+let snap: Snapshot = { recs: new Map(), count: 0, settings: DEFAULT_SETTINGS, usage: { day: "", requests: 0 }, loaded: false };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach(l => l());
 const today = () => new Date().toISOString().slice(0, 10);
@@ -32,26 +42,41 @@ export function loadEnrich(): Promise<void> {
         AsyncStorage.getItem(SKEY).catch(() => null),
         AsyncStorage.getItem(UKEY).catch(() => null),
       ]);
-      const m = new Map(rows.map(r => [r.code, r]));
+      for (const r of rows) live.set(r.code, r);
       let settings = DEFAULT_SETTINGS, usage = { day: today(), requests: 0 };
       try { if (s) settings = { ...DEFAULT_SETTINGS, ...JSON.parse(s) }; } catch { /* defaults */ }
       try { if (u) { const x = JSON.parse(u); if (x.day === today()) usage = x; } } catch { /* fresh day */ }
-      snap = { rows: m, recs: new Map(rows.map(r => [r.code, r.rec])), settings, usage, loaded: true };
+      snap = { recs: new Map(rows.map(r => [r.code, r.rec])), count: live.size, settings, usage, loaded: true };
+      lastPublish = Date.now();
       emit();
     })();
   }
   return loading;
 }
 
-/** New records from one batch: kept in memory and written to the database. */
+/** New records from one batch: written to the database now, shown in the app at the next publish. */
 export async function addRows(rows: EnrichRow[]): Promise<void> {
   if (!rows.length) return;
-  const m = new Map(snap.rows), recs = new Map(snap.recs);
-  for (const r of rows) { m.set(r.code, r); recs.set(r.code, r.rec); }
-  snap = { ...snap, rows: m, recs };
-  emit();
+  for (const r of rows) live.set(r.code, r);
+  unpublished += rows.length;
+  if (Date.now() - lastPublish >= PUBLISH_MS) publishEnrich();
+  else { snap = { ...snap, count: live.size }; emit(); }
   await putMany(rows).catch(() => {});
 }
+
+/** Shows every record made so far in the app (one catalog rebuild). */
+export function publishEnrich(): void {
+  if (!unpublished && snap.recs.size === live.size) return;
+  const recs = new Map<string, Enriched>();
+  for (const [code, r] of live) recs.set(code, r.rec);
+  snap = { ...snap, recs, count: live.size };
+  unpublished = 0;
+  lastPublish = Date.now();
+  emit();
+}
+
+/** Name hashes of every record, published or not: what the next run can skip. */
+export const liveHashes = (): Map<string, string> => new Map([...live.values()].map(r => [r.code, r.h]));
 
 export function countRequest(): void {
   const day = today();
@@ -72,7 +97,8 @@ export function setEnrichSettings(p: Partial<EnrichSettings>): void {
 }
 
 export async function clearEnrich(): Promise<void> {
-  snap = { ...snap, rows: new Map(), recs: new Map() };
+  live.clear(); unpublished = 0;
+  snap = { ...snap, recs: new Map(), count: 0 };
   emit();
   await clearAll().catch(() => {});
 }
@@ -80,3 +106,7 @@ export async function clearEnrich(): Promise<void> {
 export const getEnrich = () => snap;
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
 export const useEnrich = (): Snapshot => useSyncExternalStore(subscribe, () => snap, () => snap);
+
+/** Only the records the app applies (null when switched off): changes at a publish, never per batch. */
+export const useEnrichRecs = (): Map<string, Enriched> | null =>
+  useSyncExternalStore(subscribe, () => (snap.settings.apply ? snap.recs : null), () => (snap.settings.apply ? snap.recs : null));

@@ -107,11 +107,14 @@ export function AiProvider({ children }: { children: ReactNode }) {
     dlog("ai", `checking ${todo.length} flagged deals in ${bs.length} requests`, { model: c.model, base: c.baseUrl });
     (async () => {
       let checked = 0;
+      // answers are applied once, at the end: each apply rebuilds the deals feed and the screens using it
+      let got: Verdicts = {};
       const error = await runBatches(c, bs.length, i => prompt(bs[i]), (i, json) => {
         const add = readAnswer(bs[i], json, Date.now());
         checked += Object.keys(add).length;
-        merge(add);
+        got = { ...got, ...add };
       }, { signal: ctl.signal, maxTokens: 4096, timeoutMs: 120_000, tag: "ai", onProgress: done => setStatus(s => ({ ...s, done })) });
+      if (Object.keys(got).length) merge(got);
       run.current = null;
       setStatus(s => ({ ...s, running: false, error, at: Date.now(), checked }));
       const next = queued.current;

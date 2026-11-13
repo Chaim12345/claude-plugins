@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { AddBtn, Button, DealBadge, IconBtn, Num, PriceTag, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
 import { bestDeal, dealText, listedAt, money, search, storeKm, type BestDeal, type PriceInfo, type Sort } from "../../lib/compare";
@@ -49,7 +49,9 @@ export default function Products() {
     if (params.cat) { setCat(params.cat); setQ(""); listRef.current?.scrollToOffset({ offset: 0, animated: false }); }
     if (params.focus) { const id = setTimeout(() => inputRef.current?.focus(), 250); return () => clearTimeout(id); }
   }, [params.cat, params.focus, params.t]);
-  const dq = useDeferredValue(q);
+  // the search runs once typing pauses, not for every key (37,000 products, and the list re-renders)
+  const [dq, setDq] = useState(q);
+  useEffect(() => { if (q === dq) return; const id = setTimeout(() => setDq(q), q ? 180 : 0); return () => clearTimeout(id); }, [q, dq]);
   const list = useMemo(() => {
     const keep = onSale || onlyIL || kosher || diet
       ? (p: Product) => (!onlyIL || !!p.meta?.il) && (!kosher || KOSHER.test(p.name) || !!p.meta?.ai?.d.some(x => x === "mehadrin" || x === "badatz"))
@@ -60,11 +62,20 @@ export default function Products() {
     return sort === "unit" ? sortByUnitPrice(rows, ([p, pi]) => (pi.lo != null ? unitPrice(sizeOf(p), pi.lo) : null)) : rows;
   }, [products, active, dq, cat, sort, onSale, onlyIL, kosher, diet, deals]);
 
+  const cols = view === "grid" ? Math.max(2, Math.min(6, Math.floor((width - 24) / 190))) : Math.max(1, Math.floor(width / 480));
+  // Stable across renders, so memoized rows skip re-rendering when only the query or the header changed.
+  const onOpen = useCallback((code: string) => router.push(`/product/${encodeURIComponent(code)}`), [router]);
+  const renderItem = useCallback(({ item: [p, pi] }: { item: [Product, PriceInfo] }) => {
+    if (!catalog) return null;
+    const deal = bestDeal(p, active, deals);
+    const props = { p, pi, deal, dealChain: deal ? catalog.stores[deal.i].chain : "", chain: catalog.stores[pi.at >= 0 ? pi.at : listedAt(p, active)]?.chain ?? "", qty: cart[p.code] ?? 0, setQty, onOpen };
+    return <View style={{ flex: 1 / cols }}>{view === "list" ? <Row {...props} /> : <Card {...props} />}</View>;
+  }, [catalog, active, deals, cart, setQty, onOpen, cols, view]);
+
   // The compact list is the default: comparing prices means scanning many items, and a list shows
   // about five times as many per screen as the grid. The choice is remembered.
   useEffect(() => { AsyncStorage.getItem(VIEW_KEY).then(v => { if (v === "grid" || v === "list") setView(v); }).catch(() => {}); }, []);
   const chooseView = (v: View_) => { setView(v); AsyncStorage.setItem(VIEW_KEY, v).catch(() => {}); };
-  const cols = view === "grid" ? Math.max(2, Math.min(6, Math.floor((width - 24) / 190))) : Math.max(1, Math.floor(width / 480));
 
   if (!catalog) {
     return (
@@ -147,11 +158,10 @@ export default function Products() {
           </View>
         }
         ListEmptyComponent={<T style={{ color: t.ink2, textAlign: "center", padding: 30 }}>{kosher ? "רק מוצרים ששמם מציין מהדרין, בד״ץ או גלאט. רוב המוצרים הכשרים לא מציינים זאת בשם, אז הרשימה חלקית." : onSale || onlyIL ? "אין מוצר כזה עם המסננים שבחרתם. נסו להסיר מסנן." : "לא מצאנו מוצר כזה. נסו מילה קצרה יותר, למשל ״קוטג״."}</T>}
-        renderItem={({ item: [p, pi] }) => {
-          const deal = bestDeal(p, active, deals);
-          const props = { p, pi, deal, dealChain: deal ? catalog.stores[deal.i].chain : "", chain: catalog.stores[pi.at >= 0 ? pi.at : listedAt(p, active)]?.chain ?? "", qty: cart[p.code] ?? 0, setQty, open: () => router.push(`/product/${encodeURIComponent(p.code)}`) };
-          return <View style={{ flex: 1 / cols }}>{view === "list" ? <Row {...props} /> : <Card {...props} />}</View>;
-        }}
+        renderItem={renderItem}
+        maxToRenderPerBatch={6}
+        updateCellsBatchingPeriod={60}
+        removeClippedSubviews={Platform.OS === "android"}
       />
 
       {showTop ? (
@@ -164,7 +174,7 @@ export default function Products() {
   );
 }
 
-type ItemProps = { p: Product; pi: PriceInfo; deal: BestDeal | null; dealChain: string; chain: string; qty: number; setQty: (c: string, q: number) => void; open: () => void };
+type ItemProps = { p: Product; pi: PriceInfo; deal: BestDeal | null; dealChain: string; chain: string; qty: number; setQty: (c: string, q: number) => void; onOpen: (code: string) => void };
 
 const spread = (pi: PriceInfo) => (pi.lo != null && pi.hi != null && pi.hi > pi.lo ? Math.round((pi.hi / pi.lo - 1) * 100) : 0);
 
@@ -175,8 +185,9 @@ function Price({ pi }: { pi: PriceInfo }) {
 }
 
 /** One compact line per product: photo, name, where it's cheapest, price and add. */
-const Row = memo(function Row({ p, pi, deal, chain, qty, setQty, open }: ItemProps) {
+const Row = memo(function Row({ p, pi, deal, chain, qty, setQty, onOpen }: ItemProps) {
   const t = useTheme();
+  const open = () => onOpen(p.code);
   const unit = pi.lo != null ? unitPrice(sizeOf(p), pi.lo) : null;
   return (
     <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={`${p.name}, ${pi.lo != null ? `${money(pi.lo)} ₪` : "אין מחיר במחירון"} ב${chain}. פתיחת המחירים בכל הסניפים`}
@@ -199,8 +210,9 @@ const Row = memo(function Row({ p, pi, deal, chain, qty, setQty, open }: ItemPro
   );
 });
 
-const Card = memo(function Card({ p, pi, deal, dealChain, chain, qty, setQty, open }: ItemProps) {
+const Card = memo(function Card({ p, pi, deal, dealChain, chain, qty, setQty, onOpen }: ItemProps) {
   const t = useTheme();
+  const open = () => onOpen(p.code);
   const gap = spread(pi);
   const unit = pi.lo != null ? unitPrice(sizeOf(p), pi.lo) : null;
   return (

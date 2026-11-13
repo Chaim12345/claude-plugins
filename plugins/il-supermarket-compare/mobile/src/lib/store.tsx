@@ -6,7 +6,7 @@ import { dlog, installCrashLogging, loadLog } from "./debuglog";
 import { aliases, curateCatalog } from "./curate";
 import { loadCuration, useCuration } from "./curationState";
 import { engine } from "./engine";
-import { loadEnrich, useEnrich } from "./enrichState";
+import { loadEnrich, useEnrichRecs } from "./enrichState";
 import { bumpFreq, diffCatalogs, mergeChanges, trimFreq, type Change, type Freq } from "./insights";
 import { accept, dismiss, emptyFeedback, expire, type Basket, type Feedback, type Rec } from "./recommend";
 import { cleanName, mergeCarts, newId, uniqueName, type SavedList } from "./saved";
@@ -56,6 +56,12 @@ const KEY = { cart: "salzol:cart", place: "salzol:place", off: "salzol:off", sav
 
 const MAX_BASKETS = 30;
 
+/** The same catalog file read twice: same build time, version, branches and size. */
+function sameCatalog(a: Catalog, b: Catalog): boolean {
+  return a === b || (a.generatedAt === b.generatedAt && a.priceDate === b.priceDate && (a.version ?? 0) === (b.version ?? 0)
+    && a.products.length === b.products.length && a.stores.length === b.stores.length && a.stores.every((s, i) => s.id === b.stores[i].id));
+}
+
 /** One log line per engine event; the many per-file "check" events are left out. */
 function logEvent(tag: string, e: SyncEvent) {
   if (e.phase === "check") return;
@@ -82,6 +88,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [saved, setSaved] = useState<SavedList[]>([]);
   const [club, setClubState] = useState<ClubPrefs>({});
   const [sync, setSync] = useState<SyncState>({ running: false, events: [], error: null });
+  // Sync and discovery send dozens of progress events a second; the screens get them 4 times a second.
+  const pendingEvents = useRef<SyncEvent[]>([]);
+  const eventTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pushEvent = useCallback((e: SyncEvent) => {
+    pendingEvents.current.push(e);
+    if (eventTimer.current) return;
+    eventTimer.current = setTimeout(() => {
+      eventTimer.current = null;
+      const add = pendingEvents.current;
+      pendingEvents.current = [];
+      setSync(s => ({ ...s, events: [...s.events, ...add] }));
+    }, 250);
+  }, []);
   const [ready, setReady] = useState(false);
   const [freq, setFreq] = useState<Freq>({});
   const [changes, setChanges] = useState<Change[]>([]);
@@ -111,7 +130,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (!engine.discover || !shouldCheckDiscovery(lastDiscover.current, Date.now())) return;
     lastDiscover.current = Date.now();
     dlog("discover", "start");
-    const run = engine.discover(e => { logEvent("discover", e); setSync(s => ({ ...s, events: [...s.events, e] })); })
+    const run = engine.discover(e => { logEvent("discover", e); pushEvent(e); })
       .then(r => { dlog("discover", "result", r); return r; }, err => { dlog("error", "discover failed", String(err?.message ?? err)); return null; });
     const first = await Promise.race([run, sleep(DISCOVER_WAIT_MS).then(() => undefined)]);
     if (first !== undefined) return noteFrom(first);
@@ -132,8 +151,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
     dlog("sync", "start", p ? { place: p.place, lat: +p.lat.toFixed(3), lon: +p.lon.toFixed(3), radius: p.radius, engine: engine.kind } : { engine: engine.kind });
     try {
       await discover(p);
-      const c = await engine.sync(p, e => { logEvent("sync", e); setSync(s => ({ ...s, events: [...s.events, e] })); });
+      const c = await engine.sync(p, e => { logEvent("sync", e); pushEvent(e); });
       dlog("sync", "done", { ms: Date.now() - t0, stores: c.stores.length, products: c.products.length, version: c.version ?? 0, skipped: c.skipped });
+      // Nothing new (the stored catalog came back): keep the one on screen, no rebuild of every screen.
+      if (shown.current && sameCatalog(shown.current, c)) {
+        setSync(s => ({ ...s, running: false }));
+        return;
+      }
       // What moved since the catalog we were showing: the files say when a price changed, this says which way.
       if (shown.current && shown.current !== c) {
         const moved = diffCatalogs(shown.current, c, today());
@@ -170,8 +194,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [runSyncFor]);
 
   const cur = useCuration();
-  const enr = useEnrich();
-  const recs = enr.settings.apply ? enr.recs : null;
+  const recs = useEnrichRecs();
   const catalog = useMemo(() => (rawCatalog ? curateCatalog(rawCatalog, cur, recs) : null), [rawCatalog, cur, recs]);
   // products merged by AI curation: carts, past baskets and the regulars move to the product they joined
   const alias = useMemo(() => (rawCatalog ? aliases(rawCatalog, cur) : new Map<string, string>()), [rawCatalog, cur]);
@@ -208,7 +231,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     return next;
   });
 
-  const value: Ctx = {
+  // Memoized: every screen reads this context, and a new object on each render re-rendered all of them.
+  const value = useMemo<Ctx>(() => ({
     catalog, rawCatalog, products, active, cart, place, sync, comparison, deals, club, ready, saved, freq, changes, baskets, recFeedback,
     dismissRec(r) {
       setRecFeedback(prev => { const next = dismiss(prev, r, Date.now()); save(KEY.recfb, next); return next; });
@@ -296,7 +320,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     // A new place means other branches: the old catalog is not a "before" for the new one.
     choosePlace(p) { shown.current = null; setPlace(p); save(KEY.place, p); setOff([]); save(KEY.off, []); runSyncFor(p); },
     runSync() { runSyncFor(place); },
-  };
+  }), [catalog, rawCatalog, products, active, cart, place, sync, comparison, deals, club, ready, saved, freq, changes, baskets, recFeedback, runSyncFor]); // eslint-disable-line react-hooks/exhaustive-deps
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

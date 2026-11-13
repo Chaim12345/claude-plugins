@@ -13,6 +13,7 @@ import { useData } from "./store";
 
 /** Requests per run and task: a city's catalog needs about 15 (categories), 35 (names) and 2 (links). */
 export const MAX_REQUESTS = 40;
+const FLUSH_EVERY = 10;
 
 // ---------- the runner ----------
 
@@ -59,6 +60,19 @@ export function CurationProvider({ children }: { children: ReactNode }) {
     dlog("curate", `${k}: ${items.length} products in ${n} requests`, { model: cfg.model });
     const cats = rawCatalog.categories;
     let added = 0;
+    const buf: { set: Record<string, string>; asked: string[] } = { set: {}, asked: [] };
+    const flush = () => {
+      if (!Object.keys(buf.set).length && !buf.asked.length) return;
+      const { set: got, asked: done } = buf;
+      buf.set = {}; buf.asked = [];
+      updateCuration(c => {
+        const into = { ...c[k] } as Record<string, string>;
+        for (const [code, v] of Object.entries(got)) if (!(k === "links" && into[code])) into[code] = v;
+        const asked = { ...c.asked };
+        for (const a of done) asked[a] = 1;
+        return { ...c, [k]: into, asked };
+      });
+    };
     (async () => {
       const batch = (i: number) => items.slice(i * size, (i + 1) * size);
       const error = await runBatches(cfg, n, i => {
@@ -68,14 +82,11 @@ export function CurationProvider({ children }: { children: ReactNode }) {
         const b = batch(i);
         const res = k === "cats" ? readCats(b as never, json, cats) : k === "names" ? readNames(b as never, json) : readLinks(b as never, json);
         added += Object.keys(res.set).length;
-        updateCuration(c => {
-          const into = { ...c[k] } as Record<string, string>;
-          for (const [code, v] of Object.entries(res.set)) if (!(k === "links" && into[code])) into[code] = v;
-          const asked = { ...c.asked };
-          for (const a of res.asked) asked[a] = 1;
-          return { ...c, [k]: into, asked };
-        });
+        Object.assign(buf.set, res.set);
+        buf.asked.push(...res.asked);
+        if ((i + 1) % FLUSH_EVERY === 0) flush(); // each apply rebuilds the catalog: every few requests, not every one
       }, { signal: ctl.signal, tag: "curate", onProgress: done => set(k, { done, added }) });
+      flush();
       delete ctls.current[k];
       set(k, { running: false, error, added, at: Date.now(), stopped: ctl.signal.aborted });
       dlog("curate", `${k}: done`, { added, error });

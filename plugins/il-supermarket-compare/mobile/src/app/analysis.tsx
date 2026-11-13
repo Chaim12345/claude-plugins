@@ -1,12 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, T, useTheme } from "../components/ui";
 import { brandIndex, coverage, dietCounts, ownBrandSavings, priced, typeGroups, type TypeGroup } from "../lib/analysis";
 import { money } from "../lib/compare";
 import { DIET_LABEL } from "../lib/enrich";
+import { publishEnrich } from "../lib/enrichState";
 import { useData } from "../lib/store";
 import { unitText } from "../lib/units";
 
@@ -17,6 +18,7 @@ export default function AnalysisScreen() {
   const insets = useSafeAreaInsets();
   const { products, active, catalog } = useData();
   const [typesShown, setTypesShown] = useState(25);
+  useEffect(() => { publishEnrich(); }, []); // show every record made so far
 
   const a = useMemo(() => {
     const cov = coverage(products.values());

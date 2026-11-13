@@ -10,7 +10,7 @@ import { MAX_REQUESTS, useCurationRunner } from "../lib/curation";
 import { approveLink, resetAll, resetTask, setAutoLinks, setTaskOn, toggleUndo, useCuration } from "../lib/curationState";
 import { ENRICH_BATCH } from "../lib/enrich";
 import { useEnrichRunner } from "../lib/enrichRun";
-import { CAPS, clearEnrich, setEnrichSettings, useEnrich } from "../lib/enrichState";
+import { CAPS, clearEnrich, publishEnrich, setEnrichSettings, useEnrich } from "../lib/enrichState";
 import { useData } from "../lib/store";
 
 const INFO: Record<TaskKind, { title: string; what: string; pending: (n: number) => string; icon: "albums-outline" | "text-outline" | "git-merge-outline" }> = {
@@ -46,6 +46,7 @@ export default function CatalogScreen() {
   useEffect(() => { watch(true); return () => watch(false); }, [watch]);
   const [open, setOpen] = useState<TaskKind | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  useEffect(() => { publishEnrich(); }, []); // show every record made so far
   const n = useMemo(() => (rawCatalog ? counts(rawCatalog, cur) : null), [rawCatalog, cur]);
 
   return (

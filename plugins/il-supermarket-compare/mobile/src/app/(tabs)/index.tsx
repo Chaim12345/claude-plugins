@@ -7,7 +7,7 @@ import { DealCard } from "../../components/DealCard";
 import { Button, CAT_ICON, CAT_TINT, IconBtn, Num, ProductImage, T, canScan, useTheme } from "../../components/ui";
 import { fmtDate, money, priceInfo, storeKm } from "../../lib/compare";
 import { bestOfWeek, cartQty, defaultFilters, filterDeals, type DealItem } from "../../lib/dealsFeed";
-import { dealFeed } from "../../lib/feed";
+import { useDealFeed, useLater } from "../../lib/useLater";
 import { useAiDeals } from "../../lib/ai";
 import { dealsOnMine, priceIndex, recentlyChanged, regulars, staleFiles, summarizeChanges, topGaps } from "../../lib/insights";
 import { dueBasket, recommend } from "../../lib/recommend";
@@ -31,8 +31,9 @@ export default function Home() {
   const { catalog, products, active, cart, club, place, ready, sync, freq, changes, baskets, recFeedback, dismissRec, acceptRec, setQty, addMany } = useData();
   const { state: watch } = useWatch();
 
-  const index = useMemo(() => (catalog ? priceIndex(products.values(), active) : []), [catalog, products, active]);
-  const feed = useMemo(() => (catalog?.promos ? dealFeed(catalog, products, active, club) : null), [catalog, products, active, club]);
+  // The heavy parts are computed after the screen is on, each in its own task (useLater, useDealFeed).
+  const index = useLater(() => (catalog ? priceIndex(products.values(), active) : []), [catalog, products, active], []);
+  const feed = useDealFeed(catalog, products, active, club);
   const checkedFeed = useAiDeals(feed?.items ?? NO_DEALS, feed?.now ?? 0);
   const usable = useMemo(() => {
     if (!feed) return [];
@@ -43,17 +44,17 @@ export default function Home() {
   // deals on what this person buys: the cart, products bought on earlier days, followed products
   const mineSet = useMemo(() => new Set([...Object.keys(cart), ...Object.keys(freq), ...watch.followed]), [cart, freq, watch.followed]);
   const myDeals = useMemo(() => dealsOnMine(usable, mineSet, 10), [usable, mineSet]);
-  const forYou = useMemo(() => {
+  const forYou = useLater(() => {
     if (!catalog) return [];
     const drops = catalog ? summarizeChanges(changes, products, catalog, active).down.map(v => ({ p: v.p, pct: v.pct })) : [];
     return recommend({ products, active, cart, freq, baskets, deals: usable, drops, feedback: recFeedback, now: Date.now(), limit: 14 });
-  }, [catalog, products, active, cart, freq, baskets, usable, changes, recFeedback]);
+  }, [catalog, products, active, cart, freq, baskets, usable, changes, recFeedback], []);
   const due = useMemo(() => dueBasket(forYou), [forYou]);
   const oldFiles = useMemo(() => (catalog ? staleFiles(catalog, active) : []), [catalog, active]);
   const mine = useMemo(() => regulars(freq, products, active, cart, 12), [freq, products, active, cart]);
   const moved = useMemo(() => (catalog ? summarizeChanges(changes, products, catalog, active) : null), [changes, products, catalog, active]);
-  const dated = useMemo(() => (catalog ? recentlyChanged(products.values(), active, 7).total : 0), [catalog, products, active]);
-  const gaps = useMemo(() => (catalog ? topGaps(products.values(), active, 5) : []), [catalog, products, active]);
+  const dated = useLater(() => (catalog ? recentlyChanged(products.values(), active, 7).total : 0), [catalog, products, active], 0);
+  const gaps = useLater(() => (catalog ? topGaps(products.values(), active, 5) : []), [catalog, products, active], []);
 
   const open = (code: string) => router.push(`/product/${encodeURIComponent(code)}`);
   const browse = (cat?: string, focus?: boolean) => router.navigate({ pathname: "/products", params: { ...(cat ? { cat } : {}), ...(focus ? { focus: "1" } : {}), t: String(Date.now()) } });

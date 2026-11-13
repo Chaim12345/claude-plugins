@@ -7,7 +7,7 @@ import { useAi } from "./ai";
 import { runBatches } from "./airun";
 import { dlog } from "./debuglog";
 import { delta, ENRICH_BATCH, enrichPrompt, readEnrich } from "./enrich";
-import { addRows, countRequest, getEnrich, requestsLeft, useEnrich } from "./enrichState";
+import { addRows, countRequest, liveHashes, publishEnrich, requestsLeft, useEnrich } from "./enrichState";
 import { PRESETS, usable, type LlmConfig } from "./llm";
 import { useData } from "./store";
 
@@ -31,12 +31,12 @@ export function EnrichProvider({ children }: { children: ReactNode }) {
   const model = enrichModel(cfg, enr.settings.model);
   const mcfg = useMemo(() => ({ ...cfg, model }), [cfg, model]);
 
-  const have = useMemo(() => new Map([...enr.rows.values()].map(r => [r.code, r.h])), [enr.rows]);
-  const todo = useMemo(() => (rawCatalog ? delta(rawCatalog, have) : []), [rawCatalog, have]);
+  // what is left: recomputed when the catalog or the published records change, not on every batch
+  const todo = useMemo(() => (rawCatalog ? delta(rawCatalog, liveHashes()) : []), [rawCatalog, enr.recs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = useCallback(() => {
     if (!rawCatalog || !usable(mcfg) || ctl.current) return;
-    const items = delta(rawCatalog, new Map([...getEnrich().rows.values()].map(r => [r.code, r.h])));
+    const items = delta(rawCatalog, liveHashes());
     const n = Math.min(Math.ceil(items.length / ENRICH_BATCH), requestsLeft());
     if (!items.length) return;
     if (!n) { setStatus(s => ({ ...s, capped: true })); return; }
@@ -54,6 +54,7 @@ export function EnrichProvider({ children }: { children: ReactNode }) {
         void addRows(rows);
       }, { signal: c.signal, tag: "enrich", maxTokens: 32_000, timeoutMs: 300_000, onProgress: done => setStatus(s => ({ ...s, done, added })) });
       ctl.current = null;
+      publishEnrich(); // the run's records reach the app once, at the end
       const capped = !error && !c.signal.aborted && n * ENRICH_BATCH < items.length;
       setStatus(s => ({ ...s, running: false, added, error, at: Date.now(), stopped: c.signal.aborted, capped }));
       dlog("enrich", "done", { added, error, capped });
@@ -68,7 +69,9 @@ export function EnrichProvider({ children }: { children: ReactNode }) {
   useEffect(() => { if (!enr.settings.auto) ctl.current?.abort(); }, [enr.settings.auto]);
 
   const total = rawCatalog?.products.filter(r => !/^f-/.test(r[0])).length ?? 0;
-  const value = useMemo(() => ({ status, pending: todo.length, total, run, stop, model }), [status, todo.length, total, run, stop, model]);
+  // pending, without recomputing the delta: what was left at the last publish, less this run's records
+  const pending = Math.max(0, todo.length - (status.running ? status.added : 0));
+  const value = useMemo(() => ({ status, pending, total, run, stop, model }), [status, pending, total, run, stop, model]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 
