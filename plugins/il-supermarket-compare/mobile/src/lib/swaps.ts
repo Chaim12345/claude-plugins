@@ -40,13 +40,19 @@ export type TypeKeys = { strict: string; loose: string | null };
 export function typeKeys(name: string): TypeKeys | null {
   if (NEVER.test(name)) return null;
   const words = withoutSize(name)
-    .replace(/[()\[\]{}+&/\\,:;!?*|"'`״׳_]/g, " ")
+    .replace(/(מידה)\s*(\d+\+?)/g, "$1$2") // nappy size "4+" is not "4": before "+" is stripped
+    .replace(/(\d)\s*ב\s*1(?!\d)/g, "$1in1") // "2 ב 1" shampoo
+    .replace(/[()\[\]{}&/\\,:;!?*|"'`״׳_]/g, " ")
+    .replace(/(?<!\d)\+|\+(?=\S)/g, " ") // "טבעות+שומשום" is two words; "4+" (a size) stays
     .replace(/(\d)\s*%/g, "$1%")
-    .replace(/(מידה)\s*(\d+\+?)/g, "$1$2")
     .split(/\s+/)
     .map(w => w.replace(/^[-.]+|[-.]+$/g, ""))
     .filter(Boolean)
-    .filter(w => !/^\d+(?:\.\d+)?$/.test(w)) // bare numbers
+    // A bare one- or two-digit number left after the size is taken out is usually what tells variants
+    // apart: capsule strength "09" / "14", spaghetti "3" / "5". Kept as "#n". Longer numbers are
+    // unlabelled sizes ("400"), and ranges ("10-12") and decimals go.
+    .map(w => (/^\d{1,2}$/.test(w) ? `#${+w}` : w))
+    .filter(w => !/^\d+(?:[.\-]\d+)*$/.test(w))
     .filter(w => !FILLER.has(w));
   // a lone letter is probably a truncated word: not safe to match on
   if (!words.length || words.some(w => w.length < 2 && !/\d/.test(w))) return null;
