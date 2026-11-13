@@ -32,12 +32,16 @@ private const val TAG = "SPIKE"
 private val Brand = Color(0xFF1E6B4E)
 
 /** The UI test: Go owns the 37,153 products and the search; Compose only draws the visible rows. */
+/** The self-test's results, shown on screen (and in logcat) so a phone run can be read off a screenshot. */
+val report = mutableStateListOf<String>()
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val t0 = System.nanoTime()
         val goMs = Spike.load()
-        Log.i(TAG, "load go_ms=$goMs total_ms=${(System.nanoTime() - t0) / 1_000_000}")
+        val line = "טעינת 37,153 מוצרים ב־Go: $goMs ms (כולל JNI: ${(System.nanoTime() - t0) / 1_000_000} ms)"
+        report.add(line); Log.i(TAG, line)
         setContent {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 MaterialTheme(colorScheme = lightColorScheme(primary = Brand)) { Screen() }
@@ -53,17 +57,22 @@ fun Screen() {
     var micros by remember { mutableLongStateOf(0L) }
     var version by remember { mutableIntStateOf(0) } // new results -> new row keys
     val list = rememberLazyListState()
+    var testing by remember { mutableStateOf(false) }
 
     // the search runs in Go, off the UI thread
     LaunchedEffect(query) {
+        val t = System.nanoTime()
         val n = withContext(Dispatchers.Default) { Spike.search(query).toInt() }
         count = n; micros = Spike.searchMicros(); version++
         list.scrollToItem(0)
-        Log.i(TAG, "search q=\"$query\" n=$n go_us=$micros")
+        val line = "חיפוש ״$query״: $n תוצאות, Go ${micros} µs, עד המסך ${(System.nanoTime() - t) / 1000} µs"
+        if (testing) report.add(line)
+        Log.i(TAG, line)
     }
 
     // self-test: the same steps on every run, timed, for the CI emulator and its screenshots
     LaunchedEffect(Unit) {
+        testing = true
         delay(2500)
         for (q in listOf("גבינה", "גבינה צהובה", "חלב 3%", "במבה", "")) { query = q; delay(1800) }
         query = ""
@@ -82,7 +91,12 @@ fun Screen() {
             repeat(30) { list.animateScrollBy(2400f) }
             watcher.cancel()
         }
-        Log.i(TAG, "scroll frames=$frames slow_over_20ms=$slow worst_ms=${worst / 1_000_000} secs=${(System.nanoTime() - start) / 1e9} at_item=${list.firstVisibleItemIndex}")
+        val secs = (System.nanoTime() - start) / 1e9
+        val line = "גלילה ב־${"%.1f".format(secs)} שניות עד מוצר ${list.firstVisibleItemIndex}: $frames פריימים (${"%.0f".format(frames / secs)} לשנייה), $slow איטיים מ־20ms, הכי איטי ${worst / 1_000_000} ms"
+        report.add(line); Log.i(TAG, line)
+        testing = false
+        list.scrollToItem(0)
+        report.add("הבדיקה הסתיימה. צלמו את המסך ושלחו. אפשר להמשיך להקליד ולגלול.")
         Log.i(TAG, "selftest done")
     }
 
@@ -95,6 +109,12 @@ fun Screen() {
                 placeholder = { Text("חיפוש מוצר, למשל ״גבינה צהובה״") }, modifier = Modifier.fillMaxWidth(),
             )
             Text("${"%,d".format(count)} מוצרים · החיפוש ב־Go לקח ${micros} מיקרו־שניות", fontSize = 13.sp, color = Color(0xFF6B6B6B))
+            if (report.isNotEmpty()) {
+                Column(Modifier.fillMaxWidth().background(Color(0xFFEAF3EE), RoundedCornerShape(12.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("תוצאות הבדיקה · ${android.os.Build.MODEL}, Android ${android.os.Build.VERSION.RELEASE}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    report.forEach { Text(it, fontSize = 12.sp) }
+                }
+            }
         }
         LazyColumn(state = list, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(count, key = { i -> "$version:$i" }) { i -> ProductRow(i) }
