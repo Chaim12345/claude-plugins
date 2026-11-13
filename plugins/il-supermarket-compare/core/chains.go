@@ -291,28 +291,53 @@ func (p *publishedPrices) list(ctx context.Context, search string) ([]FileRef, e
 	if err := p.login(ctx); err != nil {
 		return nil, err
 	}
-	var r struct {
-		AAData []struct {
-			Fname string `json:"fname"`
-		} `json:"aaData"`
-	}
 	folder := ppLogins[p.user].folder
 	if folder == "" {
 		folder = "/"
 	}
-	form := url.Values{"sEcho": {"1"}, "iDisplayStart": {"0"}, "iDisplayLength": {"100000"}, "sSearch": {search}, "cd": {folder}, "csrftoken": {p.token}}
-	if err := p.post(ctx, "/file/json/dir", form, &r); err != nil {
+	out, subs, err := p.dir(ctx, folder, search)
+	if err != nil {
 		return nil, err
 	}
-	out := make([]FileRef, 0, len(r.AAData))
-	prefix := strings.Trim(ppLogins[p.user].folder, "/")
+	// Some accounts keep their files in sub-folders ("/Yuda/stores"): look one level down.
+	for _, sub := range subs {
+		more, _, err := p.dir(ctx, strings.TrimRight(folder, "/")+"/"+sub, search)
+		if err == nil {
+			out = append(out, more...)
+		}
+	}
+	return out, nil
+}
+
+// dir lists one folder: the files in it, and the names of its sub-folders. A price-file name always
+// has digits (chain id, date); an entry without any is a folder.
+func (p *publishedPrices) dir(ctx context.Context, folder, search string) ([]FileRef, []string, error) {
+	var r struct {
+		AAData []struct {
+			Fname string `json:"fname"`
+			Ftype string `json:"ftype"`
+		} `json:"aaData"`
+	}
+	form := url.Values{"sEcho": {"1"}, "iDisplayStart": {"0"}, "iDisplayLength": {"100000"}, "sSearch": {search}, "cd": {folder}, "csrftoken": {p.token}}
+	if err := p.post(ctx, "/file/json/dir", form, &r); err != nil {
+		return nil, nil, err
+	}
+	prefix := strings.Trim(folder, "/")
 	if prefix != "" {
 		prefix += "/"
 	}
+	var files []FileRef
+	var subs []string
 	for _, f := range r.AAData {
-		out = append(out, FileRef{Name: f.Fname, URL: ppURL + "/file/d/" + prefix + f.Fname})
+		if f.Ftype == "folder" || !strings.ContainsAny(f.Fname, "0123456789") {
+			if f.Fname != "" && f.Fname != "." && f.Fname != ".." {
+				subs = append(subs, f.Fname)
+			}
+			continue
+		}
+		files = append(files, FileRef{Name: f.Fname, URL: ppURL + "/file/d/" + prefix + f.Fname})
 	}
-	return out, nil
+	return files, subs, nil
 }
 
 func (p *publishedPrices) Stores(ctx context.Context) ([]StoreRow, error) {

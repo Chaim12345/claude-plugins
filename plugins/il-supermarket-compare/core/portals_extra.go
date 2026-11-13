@@ -78,6 +78,8 @@ func newExtraPortal(chain string, c *http.Client) (Portal, bool) {
 		return &haziHinam{c: c}, true
 	case "citymarketshops":
 		return &cityMarketShops{c: c}, true
+	case "netivhased":
+		return &netivHesed{c: c}, true
 	}
 	if b, ok := binaChains[chain]; ok {
 		return &bina{c: jar(), chain: chain, prefix: b.prefix, chainIDs: b.ids}, true
@@ -101,8 +103,7 @@ var binaChains = map[string]struct {
 	"citymarket":   {"citymarketkiryatgat", []string{"7290058288526", "7290058266241", "7290058288090"}},
 	// City Market's two other Bina portals (citymarketgivatayim, citymarketkiryatono) stopped
 	// publishing in 2024; their branches are in the portal above.
-	"ktmarket":   {"ktshivuk", []string{"7290058289400"}},
-	"netivhased": {"netivhased", []string{"7290058160839"}},
+	"ktmarket": {"ktshivuk", []string{"7290058289400"}},
 }
 
 type bina struct {
@@ -781,6 +782,116 @@ func (cm *cityMarketShops) latest(ctx context.Context, typ, kind, storeID string
 
 func (cm *cityMarketShops) Open(ctx context.Context, f FileRef) (io.ReadCloser, error) {
 	r, err := get(ctx, cm.c, f.URL)
+	if err != nil {
+		return nil, err
+	}
+	return r.Body, nil
+}
+
+// ---------------- Netiv HaHesed (app.netiv-hesed.com) ----------------
+// The official list moved Netiv HaHesed off Bina to its own site: an HTML table per day
+// (?Date=YYYY-MM-DD, optionally &StoreNumber=N), one file per row; the download link carries the
+// file name in ?fileName=. The site refuses foreign IPs, so this runs on a phone in Israel. Source:
+// scrappers/nativ_hashed.py.
+
+var netivURL = "https://app.netiv-hesed.com/"
+
+type netivHesed struct {
+	c     *http.Client
+	lists map[string][]FileRef
+}
+
+var netivHrefRx = regexp.MustCompile(`(?i)href="([^"]+)"`)
+
+func (n *netivHesed) list(ctx context.Context, day string) ([]FileRef, error) {
+	if l, ok := n.lists[day]; ok {
+		return l, nil
+	}
+	body, err := getText(ctx, n.c, netivURL+"?"+url.Values{"Date": {day}}.Encode())
+	if err != nil {
+		return nil, err
+	}
+	base, _ := url.Parse(netivURL)
+	var out []FileRef
+	seen := map[string]bool{}
+	for _, row := range haziRowRx.FindAllStringSubmatch(body, -1) {
+		m := netivHrefRx.FindStringSubmatch(row[1])
+		if m == nil {
+			continue
+		}
+		u, err := url.Parse(strings.ReplaceAll(m[1], "&amp;", "&"))
+		if err != nil {
+			continue
+		}
+		name := u.Query().Get("fileName")
+		if name == "" {
+			name = path(u.Path)
+		}
+		if name == "" || seen[name] || !strings.ContainsAny(name, "0123456789") {
+			continue
+		}
+		seen[name] = true
+		out = append(out, FileRef{Name: name, URL: base.ResolveReference(u).String()})
+	}
+	if n.lists == nil {
+		n.lists = map[string][]FileRef{}
+	}
+	n.lists[day] = out
+	return out, nil
+}
+
+// find is the newest file of a kind (and store, unless storeID is "") over today and the two days before.
+func (n *netivHesed) find(ctx context.Context, kind, storeID string) (FileRef, error) {
+	for back := 0; back < 3; back++ {
+		l, err := n.list(ctx, time.Now().AddDate(0, 0, -back).Format("2006-01-02"))
+		if err != nil {
+			if back == 0 {
+				return FileRef{}, err
+			}
+			continue
+		}
+		var mine []FileRef
+		for _, f := range l {
+			if !hasPrefixFold(f.Name, kind) || (kind == "Price" && hasPrefixFold(f.Name, "PriceFull")) || (kind == "Promo" && hasPrefixFold(f.Name, "PromoFull")) {
+				continue
+			}
+			if storeID == "" || strings.Contains(f.Name, storeTag(storeID)) {
+				mine = append(mine, f)
+			}
+		}
+		if len(mine) > 0 {
+			return newest(mine), nil
+		}
+	}
+	if storeID == "" {
+		return FileRef{}, fmt.Errorf("netivhased: no %s file in the last 3 days", kind)
+	}
+	return FileRef{}, ErrNotPublished{"netivhased", storeID}
+}
+
+func (n *netivHesed) Stores(ctx context.Context) ([]StoreRow, error) {
+	f, err := n.find(ctx, "Stores", "")
+	if err != nil {
+		return nil, err
+	}
+	rc, err := n.Open(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	return ParseStoresFile(rc, "netivhased")
+}
+
+func (n *netivHesed) LatestPriceFull(ctx context.Context, storeID string) (FileRef, error) {
+	return n.find(ctx, "PriceFull", storeID)
+}
+
+func (n *netivHesed) LatestPromoFull(ctx context.Context, storeID string) (FileRef, error) {
+	return n.find(ctx, "PromoFull", storeID)
+}
+
+func (n *netivHesed) Open(ctx context.Context, f FileRef) (io.ReadCloser, error) {
+	r, err := get(ctx, n.c, f.URL)
 	if err != nil {
 		return nil, err
 	}

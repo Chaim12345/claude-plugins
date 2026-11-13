@@ -5,7 +5,7 @@ import * as Location from "expo-location";
 import { Platform } from "react-native";
 import Native from "../../modules/salzol-native";
 import { parseDiscovery, type DiscoverResult } from "./discover";
-import { chooseCandidate, typedCity, type LatLon } from "./geo";
+import { chooseCandidate, typedCity, withTimeout, type LatLon } from "./geo";
 import type { Catalog, MoreResult, NearStore, Place, SyncEvent } from "./types";
 
 /** A geocoded address and who answered: the phone's own geocoder, or OpenStreetMap services. */
@@ -59,8 +59,10 @@ async function osCandidates(address: string): Promise<LatLon[]> {
       const asked = await Location.requestForegroundPermissionsAsync();
       if (!asked.granted) return [];
     }
-    const r = await Location.geocodeAsync(address);
-    return r.map(x => ({ lat: x.latitude, lon: x.longitude }));
+    // The platform geocoder can hang (Google's geocoding service crashed on the CI emulator and the
+    // call never returned): after 10 s the offline index and OpenStreetMap answer instead.
+    const r = await withTimeout(Location.geocodeAsync(address), 10_000);
+    return (r ?? []).map(x => ({ lat: x.latitude, lon: x.longitude }));
   } catch {
     return [];
   }

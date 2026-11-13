@@ -34,6 +34,10 @@ const (
 // notGroceryChains are portal keys that are not supermarkets (pharmacies) and are never discovered.
 var notGroceryChains = map[string]bool{"superpharm": true, "goodpharm": true, "newpharm": true, "be": true}
 
+// retiredChains no longer publish on their own portal: the official list (gov.il, Nov 2026) puts
+// Cofix under Rami Levy and Quik under Carrefour and Rami Levy. Their clients stay for old configs.
+var retiredChains = map[string]bool{"quik": true, "SuperCofixApp": true}
+
 // extraFile is directory-extra.json: the discovered branches plus when each chain was last tried.
 type extraFile struct {
 	Built  string            `json:"built"`
@@ -94,7 +98,7 @@ func DiscoverableChains() []string {
 	}
 	var out []string
 	for c := range ChainNames {
-		if !have[c] && !notGroceryChains[strings.ToLower(c)] {
+		if !have[c] && !notGroceryChains[strings.ToLower(c)] && !retiredChains[c] {
 			out = append(out, c)
 		}
 	}

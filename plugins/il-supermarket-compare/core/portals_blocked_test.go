@@ -330,7 +330,7 @@ func TestDiscoverableChains(t *testing.T) {
 	for _, c := range DiscoverableChains() {
 		got[c] = true
 	}
-	for _, c := range []string{"victory", "carrefour", "hazihinam", "mahsanei", "hcohen", "quik"} {
+	for _, c := range []string{"victory", "carrefour", "hazihinam", "mahsanei", "hcohen"} {
 		if !got[c] {
 			t.Errorf("%s should be discoverable (absent from the embedded directory)", c)
 		}
@@ -461,7 +461,7 @@ func TestRefreshExtra(t *testing.T) {
 	if sum.Counts["victory"] != 2 || sum.Counts["carrefour"] != 1 {
 		t.Errorf("counts = %v", sum.Counts)
 	}
-	for _, c := range []string{"hazihinam", "quik", "mahsanei", "hcohen"} {
+	for _, c := range []string{"hazihinam", "mahsanei", "hcohen"} {
 		if sum.Errors[c] == "" {
 			t.Errorf("%s: want an error, got summary %+v", c, sum)
 		}
@@ -517,5 +517,57 @@ func TestRefreshExtra(t *testing.T) {
 	}
 	if victory != 2 {
 		t.Errorf("a failed refresh lost the stored branches: %d", victory)
+	}
+}
+
+func TestNetivHesedPortal(t *testing.T) {
+	today := time.Now().Format("2006-01-02")
+	page := `<table><tr><th>סניף</th><th>קובץ</th></tr>
+<tr><td>1</td><td>Stores</td><td></td><td></td><td>13/11/2026 05:00</td><td><a href="/Download?fileName=Stores7290058160839-000-202611130500.xml.gz">הורדה</a></td></tr>
+<tr><td>3</td><td>PriceFull</td><td></td><td></td><td>13/11/2026 05:00</td><td><a href="/Download?fileName=PriceFull7290058160839-001-003-20261113-050000.xml.gz">הורדה</a></td></tr>
+<tr><td>3</td><td>Price</td><td></td><td></td><td>13/11/2026 06:00</td><td><a href="/Download?fileName=Price7290058160839-001-003-20261113-060000.xml.gz">הורדה</a></td></tr>
+<tr><td>3</td><td>PromoFull</td><td></td><td></td><td>13/11/2026 05:00</td><td><a href="/Download?fileName=PromoFull7290058160839-001-003-20261113-050000.xml.gz">הורדה</a></td></tr>
+</table>`
+	stores := `<Root><Stores><Store><StoreId>3</StoreId><StoreName>נתיב החסד בני ברק</StoreName><Address>רבי עקיבא 100</Address><City>בני ברק</City></Store></Stores></Root>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/" && r.URL.Query().Get("Date") == today:
+			fmt.Fprint(w, page)
+		case r.URL.Path == "/":
+			fmt.Fprint(w, "<table></table>")
+		case strings.HasPrefix(r.URL.Query().Get("fileName"), "Stores"):
+			fmt.Fprint(w, stores)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	old := netivURL
+	netivURL = srv.URL + "/"
+	defer func() { netivURL = old }()
+
+	p, ok := newExtraPortal("netivhased", srv.Client())
+	if !ok {
+		t.Fatal("no netivhased portal")
+	}
+	ctx := context.Background()
+	f, err := p.LatestPriceFull(ctx, "3")
+	if err != nil || f.Name != "PriceFull7290058160839-001-003-20261113-050000.xml.gz" || !strings.HasPrefix(f.URL, srv.URL+"/Download?fileName=") {
+		t.Fatalf("price full = %+v, %v", f, err)
+	}
+	if f, err := p.LatestPromoFull(ctx, "3"); err != nil || !strings.HasPrefix(f.Name, "PromoFull") {
+		t.Errorf("promo full = %+v, %v", f, err)
+	}
+	if _, err := p.LatestPriceFull(ctx, "9"); err == nil {
+		t.Error("a store with no file should be ErrNotPublished")
+	}
+	rows, err := p.Stores(ctx)
+	if err != nil || len(rows) != 1 || rows[0].City != "בני ברק" || rows[0].Chain != "netivhased" {
+		t.Errorf("stores = %+v, %v", rows, err)
+	}
+	for _, c := range DiscoverableChains() {
+		if c == "quik" || c == "SuperCofixApp" {
+			t.Errorf("retired chain %s is still discovered", c)
+		}
 	}
 }
