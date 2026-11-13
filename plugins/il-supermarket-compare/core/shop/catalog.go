@@ -26,11 +26,12 @@ type Index struct {
 	words    map[string][]int32            // word -> products whose search key has it
 	vocab    []string                      // the words, for substring lookups
 	Built    time.Time
+	Alias    map[string]string // codes merged into another product (curation) -> that product
 }
 
 // FromCatalog types a catalog's product rows (they arrive as JSON-shaped [][]any) and indexes them.
 // recs are the model's product records (category, brand, type, diet), applied when given.
-func FromCatalog(c *core.Catalog, recs map[string]*Record) (*Index, error) {
+func FromCatalog(c *core.Catalog, recs map[string]*Record, cur ...*Curation) (*Index, error) {
 	raw, err := json.Marshal(c.Products)
 	if err != nil {
 		return nil, err
@@ -55,9 +56,16 @@ func FromCatalog(c *core.Catalog, recs map[string]*Record) (*Index, error) {
 				p.Cat = rec.C
 			}
 		}
-		p.Key = searchKey(p)
 		ix.ByCode[p.Code] = p
 		ix.Products = append(ix.Products, p)
+	}
+	var cu *Curation
+	if len(cur) > 0 {
+		cu = cur[0]
+	}
+	alias := ix.applyCuration(cu) // tidied names and merged duplicates, before the search index
+	for _, p := range ix.Products {
+		p.Key = searchKey(p)
 	}
 	for i, p := range ix.Products {
 		seen := map[string]bool{}
@@ -79,6 +87,9 @@ func FromCatalog(c *core.Catalog, recs map[string]*Record) (*Index, error) {
 		if i < len(c.Promos) {
 			for _, pr := range c.Promos[i] {
 				for _, code := range pr.Codes {
+					if to, ok := alias[code]; ok {
+						code = to // a merged barcode's promotions belong to the product it joined
+					}
 					m[code] = append(m[code], pr)
 				}
 			}
@@ -88,6 +99,9 @@ func FromCatalog(c *core.Catalog, recs map[string]*Record) (*Index, error) {
 		if i < len(c.PromoNotes) {
 			for _, pn := range c.PromoNotes[i] {
 				for _, code := range pn.Codes {
+					if to, ok := alias[code]; ok {
+						code = to
+					}
 					n[code] = append(n[code], pn)
 				}
 			}

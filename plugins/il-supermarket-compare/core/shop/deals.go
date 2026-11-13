@@ -74,6 +74,9 @@ func (ix *Index) BuildDeals(active []int, club Club, now time.Time) []*Deal {
 			}
 			spread := -1.0
 			for _, code := range pr.Codes {
+				if to, ok := ix.Alias[code]; ok {
+					code = to
+				}
 				p := ix.ByCode[code]
 				if p == nil || p.Weighted || p.Prices[i] < 0 {
 					continue

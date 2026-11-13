@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"time"
@@ -42,12 +43,14 @@ func (e *Engine) TestAI() string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
-	text, err := e.cl.Chat(ctx, c, []ai.Message{{Role: "user", Content: `Answer with JSON only: {"ok":true}`}}, 1024, 35*time.Second)
+	// the test is a forced tool call, the way every AI task in the app asks
+	args, err := e.cl.CallTool(ctx, c, []ai.Message{{Role: "user", Content: "Call report_status with ok=true."}}, ai.StatusTool, 35*time.Second)
 	if err != nil {
 		return err.Error()
 	}
-	if m := ai.ParseJSON(text); m == nil || string(m["ok"]) != "true" {
-		return "המודל ענה, אבל לא בפורמט הנדרש"
+	var r struct{ OK bool }
+	if json.Unmarshal(args, &r) != nil || !r.OK {
+		return "המודל ענה, אבל לא דרך הכלי"
 	}
 	return ""
 }

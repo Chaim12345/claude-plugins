@@ -167,9 +167,21 @@ For each product, decide whether the promotion's wording covers it:
 - "no": only when the wording clearly describes something else: a different product type (soap listed under a snack promotion), a different named brand (Pepsi wording, a 7up product), or a pack size far outside the range the wording gives.
 - "unclear": generic wording ("מבצע", "הנחה", a store-brand discount such as "מותג שופרסל" when the name doesn't show the brand), or a product line you don't know. Brand lines are often unfamiliar: when the product type fits the wording and the brand might be the one named, answer "unclear" or "yes", never "no".
 Hebrew abbreviations are common: גר'/ג = grams, ל' = litre, מ"ל = ml, יח' = units, 2ב30 = two for 30 shekels.
-Answer with JSON only, no other text, in exactly this shape:
-{"P1":{"yes":[1,2],"no":[3],"unclear":[]},"P2":{...}}
-using the promotion labels and product numbers given.`
+Record the answer for every promotion with record_verdicts, using the promotion numbers (P1 = 1) and product numbers given.`
+
+// VerdictTool is the deal-check answer: per promotion, which of its products the wording covers.
+var VerdictTool = Tool{Name: "record_verdicts", Description: "Record, for each promotion, which of its listed products its wording covers.", Schema: map[string]any{
+	"type": "object", "required": []string{"promotions"},
+	"properties": map[string]any{"promotions": map[string]any{"type": "array", "items": map[string]any{
+		"type": "object", "required": []string{"p", "yes", "no", "unclear"},
+		"properties": map[string]any{
+			"p":       map[string]any{"type": "integer", "description": "the promotion number (P1 = 1)"},
+			"yes":     map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "product numbers the wording covers"},
+			"no":      map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "product numbers it clearly does not cover"},
+			"unclear": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}},
+		},
+	}}},
+}}
 
 func checkPrompt(b []*group) []Message {
 	var parts []string
@@ -183,13 +195,25 @@ func checkPrompt(b []*group) []Message {
 	return []Message{{"system", checkSystem}, {"user", strings.Join(parts, "\n\n")}}
 }
 
-func (v *Verdicts) read(b []*group, ans map[string]json.RawMessage, now time.Time) int {
+func (v *Verdicts) read(b []*group, args json.RawMessage, now time.Time) int {
+	var got struct {
+		Promotions []map[string]any `json:"promotions"`
+	}
+	json.Unmarshal(args, &got)
+	byP := map[int]map[string][]any{}
+	for _, p := range got.Promotions {
+		n, _ := p["p"].(float64)
+		m := map[string][]any{}
+		for _, k := range []string{"yes", "no", "unclear"} {
+			m[k], _ = p[k].([]any)
+		}
+		byP[int(n)] = m
+	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	n := 0
 	for i, g := range b {
-		var a map[string][]any
-		json.Unmarshal(ans["P"+strconv.Itoa(i+1)], &a)
+		a := byP[i+1]
 		seen := map[int]bool{}
 		until := max(now.Add(24*time.Hour).Unix(), g.end)
 		for _, kind := range []string{"no", "unclear", "yes"} { // in two lists: "yes" wins, then "unclear"
@@ -220,12 +244,12 @@ func (v *Verdicts) Check(ctx context.Context, cl *Client, c Config, deals []*sho
 	if len(bs) > maxRequests {
 		bs = bs[:maxRequests]
 	}
-	stop = Run(ctx, cl, c, len(bs), func(i int) []Message { return checkPrompt(bs[i]) }, func(i int, ans map[string]json.RawMessage) {
-		asked += v.read(bs[i], ans, time.Now())
+	stop = Run(ctx, cl, c, len(bs), VerdictTool, func(i int) []Message { return checkPrompt(bs[i]) }, func(i int, args json.RawMessage) {
+		asked += v.read(bs[i], args, time.Now())
 	}, func(done int) {
 		if onProgress != nil {
 			onProgress(done, len(bs))
 		}
-	}, 4096, 2*time.Minute, nil)
+	}, 2*time.Minute, nil)
 	return asked, stop
 }

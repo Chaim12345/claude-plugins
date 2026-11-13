@@ -17,6 +17,7 @@ type Product struct {
 	Odd      [][2]int    // [store, agorot]: a price 4x off the others, set aside
 	RawName  string      // the name in the price files, when AI curation tidied Name
 	Key      string      // normalised search text
+	Linked   []string    // other barcodes of the same product, merged into this one (curation)
 
 	StatedSize  StatedSize // pack size the chains state in their files (ProductMeta.Size)
 	StatedAgree int        // how many chains agree on it

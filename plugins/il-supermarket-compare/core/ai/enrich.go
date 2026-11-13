@@ -154,24 +154,50 @@ func (s *Store) Delta(items []Item) []Item {
 	return out
 }
 
+// EnrichTool is the classification answer: one entry per product, enums for categories and tags.
+func EnrichTool(cats []struct{ ID, Name string }) Tool {
+	var ids []string
+	for _, c := range cats {
+		ids = append(ids, c.ID)
+	}
+	str := func(d string) map[string]any { return map[string]any{"type": "string", "description": d} }
+	return Tool{Name: "record_products", Description: "Record the classification of every product in the list, in order.", Schema: map[string]any{
+		"type": "object", "required": []string{"products"},
+		"properties": map[string]any{"products": map[string]any{"type": "array", "items": map[string]any{
+			"type":     "object",
+			"required": []string{"n", "type", "category", "brand", "tags", "own_brand", "unsure"},
+			"properties": map[string]any{
+				"n":        map[string]any{"type": "integer", "description": "the product's number in the list"},
+				"type":     str("product type in Hebrew, generic and singular, without brand, flavour or size"),
+				"category": map[string]any{"type": "string", "enum": ids},
+				"brand":    str("brand or manufacturer shoppers know, \"\" if the name shows none"),
+				"line":     str("product line or sub-brand, else \"\""),
+				"variant":  str("flavour, fat %, strength or style in a few words, else \"\""),
+				"size": map[string]any{"type": "object", "description": "pack size; omit when the name has none",
+					"properties": map[string]any{"amount": map[string]any{"type": "number", "description": "per pack"}, "unit": map[string]any{"type": "string", "enum": []string{"g", "ml", "u"}}, "packs": map[string]any{"type": "integer"}},
+					"required":   []string{"amount", "unit", "packs"}},
+				"tags":      map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": shop.Diets}},
+				"own_brand": map[string]any{"type": "boolean", "description": "the brand is a supermarket chain's own label"},
+				"unsure":    map[string]any{"type": "boolean", "description": "true only if unsure of the type or the brand"},
+			},
+		}}},
+	}}
+}
+
 // EnrichPrompt is the classification request for one batch (mobile/src/lib/enrich.ts enrichPrompt).
 func EnrichPrompt(items []Item, cats []struct{ ID, Name string }) []Message {
 	var list []string
 	for _, c := range cats {
 		list = append(list, c.ID+"="+c.Name)
 	}
-	sys := `You build a product database for an Israeli supermarket price-comparison app from the names in the chains' price files (often abbreviated, sizes glued to words). For each product return an array:
-[type, category, brand, line, variant, size, tags, own_brand, unsure]
+	sys := `You build a product database for an Israeli supermarket price-comparison app from the names in the chains' price files (often abbreviated, sizes glued to words). Classify every product with record_products:
 - type: the product type in Hebrew, generic and singular, without brand, flavour or size ("חלב", "גבינה לבנה", "חטיף תירס", "נוזל כלים", "שמפו", "פסטה", "חזה עוף").
-- category: one id of: ` + strings.Join(list, ", ") + `. Pick where a shopper would look ("other" only for non-grocery goods such as toys, clothing, candles).
+- category: where a shopper would look: ` + strings.Join(list, ", ") + ` ("other" only for non-grocery goods such as toys, clothing, candles).
 - brand: the brand or manufacturer shoppers know ("תנובה", "אסם", "שטראוס", "קוקה קולה"), "" if the name shows none. A chain's own brand counts (שופרסל, רמי לוי, יש, ויקטורי, טיב טעם).
-- line: product line or sub-brand ("במבה", "דני", "פיניש"), else "".
-- variant: flavour, fat %, strength or style in a few words ("3%", "תות", "ללא לקטוז"), else "".
-- size: [amount per pack, "g"|"ml"|"u", packs], e.g. "6X330 מל" -> [330,"ml",6], "1 ק"ג" -> [1000,"g",1]; null when the name has no size.
-- tags: only from ` + strings.Join(shop.Diets, ", ") + `. Use a tag only when the name says it (כשר, מהדרין, בד"ץ, ללא גלוטן, אורגני, טבעוני, דיאט...) or it is certain from the type (dairy for cheese or yogurt, meat for chicken or beef). Never add kosher or parve by default. [] when none.
-- own_brand: 1 if the brand is a supermarket chain's own label, else 0.
-- unsure: 1 only if you are unsure of the type or the brand, else 0.
-Answer with JSON only: {"1":[...],"2":[...]} with one entry per product, in the order given.`
+- line: product line or sub-brand ("במבה", "דני", "פיניש"). variant: flavour, fat %, strength or style ("3%", "תות", "ללא לקטוז").
+- size: amount per pack, unit g / ml / u (pieces), packs; "6X330 מל" is 330 ml x 6, "1 ק"ג" is 1000 g. Omit when the name has no size.
+- tags: only when the name says it (כשר, מהדרין, בד"ץ, ללא גלוטן, אורגני, טבעוני, דיאט...) or it is certain from the type (dairy for cheese or yogurt, meat for chicken or beef). Never add kosher or parve by default.
+- own_brand: the brand is a supermarket chain's own label. unsure: only if you are unsure of the type or the brand.`
 	var u []string
 	for i, it := range items {
 		line := strconv.Itoa(i+1) + ". " + it.Name
@@ -243,16 +269,29 @@ func ReadRecord(raw json.RawMessage, fallback string, cats map[string]bool) *sho
 	return r
 }
 
-// ReadEnrich turns one batch's answer into rows; products the model skipped are asked next run.
-func ReadEnrich(items []Item, ans map[string]json.RawMessage, cats map[string]bool, model string, now time.Time) []Row {
+// ReadEnrich turns one batch's tool arguments ({"products":[{n,type,category,...}]}) into rows;
+// products the model skipped are asked next run.
+func ReadEnrich(items []Item, args json.RawMessage, cats map[string]bool, model string, now time.Time) []Row {
+	var a struct {
+		Products []map[string]any `json:"products"`
+	}
+	json.Unmarshal(args, &a)
 	var out []Row
-	for i, it := range items {
-		raw, ok := ans[strconv.Itoa(i+1)]
-		if !ok {
+	seen := map[int]bool{}
+	for _, m := range a.Products {
+		n, _ := m["n"].(float64)
+		i := int(n) - 1
+		if i < 0 || i >= len(items) || seen[i] {
 			continue
 		}
-		if rec := ReadRecord(raw, it.Cat, cats); rec != nil {
-			out = append(out, Row{Code: it.Code, H: NameHash(it.Name), Rec: rec, Model: model, At: now.Unix()})
+		var size any
+		if z, ok := m["size"].(map[string]any); ok {
+			size = []any{z["amount"], z["unit"], z["packs"]}
+		}
+		raw, _ := json.Marshal([]any{m["type"], m["category"], m["brand"], m["line"], m["variant"], size, m["tags"], m["own_brand"], m["unsure"]})
+		if rec := ReadRecord(raw, items[i].Cat, cats); rec != nil {
+			seen[i] = true
+			out = append(out, Row{Code: items[i].Code, H: NameHash(items[i].Name), Rec: rec, Model: model, At: now.Unix()})
 		}
 	}
 	return out
@@ -269,13 +308,13 @@ func Enrich(ctx context.Context, cl *Client, c Config, st *Store, items []Item, 
 	total := min(n, (len(items)+EnrichBatch-1)/EnrichBatch)
 	batch := func(i int) []Item { return items[i*EnrichBatch : min(len(items), (i+1)*EnrichBatch)] }
 	added := 0
-	return Run(ctx, cl, c, total, func(i int) []Message { return EnrichPrompt(batch(i), cats) }, func(i int, ans map[string]json.RawMessage) {
-		rows := ReadEnrich(batch(i), ans, valid, c.Model, time.Now())
+	return Run(ctx, cl, c, total, EnrichTool(cats), func(i int) []Message { return EnrichPrompt(batch(i), cats) }, func(i int, args json.RawMessage) {
+		rows := ReadEnrich(batch(i), args, valid, c.Model, time.Now())
 		added += len(rows)
 		st.Put(rows)
 	}, func(done int) {
 		if onBatch != nil {
 			onBatch(done, total, added)
 		}
-	}, 32000, 5*time.Minute, nil)
+	}, 5*time.Minute, nil) // 80 records need about 9,000 output tokens
 }

@@ -5,18 +5,21 @@
 package ai
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/shared"
 )
 
 // Config is the user's AI setting.
@@ -93,9 +96,22 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Msg }
 
-// Client calls an OpenAI-compatible API.
+// Tool is a function the model must call: its arguments, checked against Schema, are the answer.
+// Every AI task in the app is one tool (record_products, record_verdicts, ...), so answers arrive as
+// structured arguments instead of free text to be parsed.
+type Tool struct {
+	Name        string
+	Description string
+	Schema      map[string]any // JSON schema of the arguments (an object)
+}
+
+// Client calls an OpenAI-compatible API through OpenAI's official Go SDK (openai-go), with a custom
+// base URL: Gemini's OpenAI endpoint, OpenRouter, Groq, or a local server.
 type Client struct {
 	HTTP *http.Client
+
+	mu     sync.Mutex
+	noTool map[string]bool // base URLs that rejected tool calls: JSON mode instead
 }
 
 var DefaultClient = &Client{HTTP: &http.Client{}}
@@ -104,38 +120,33 @@ func endpoint(base, path string) string {
 	return strings.TrimRight(strings.TrimSpace(base), "/") + path
 }
 
-func (cl *Client) do(ctx context.Context, c Config, method, path string, body any, timeout time.Duration) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	var rd io.Reader
-	if body != nil {
-		b, _ := json.Marshal(body)
-		rd = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, endpoint(c.BaseURL, path), rd)
-	if err != nil {
-		return nil, &Error{Msg: "כתובת לא תקינה", Kind: "bad"}
-	}
-	req.Header.Set("Content-Type", "application/json")
+func (cl *Client) sdk(c Config) openai.Client {
+	opts := []option.RequestOption{option.WithBaseURL(strings.TrimRight(strings.TrimSpace(c.BaseURL), "/") + "/"), option.WithHTTPClient(cl.HTTP), option.WithMaxRetries(1)}
 	if k := strings.TrimSpace(c.Key); k != "" {
-		req.Header.Set("Authorization", "Bearer "+k)
+		opts = append(opts, option.WithAPIKey(k))
+	} else {
+		opts = append(opts, option.WithAPIKey("none"))
 	}
 	if c.Preset == "openrouter" {
-		req.Header.Set("X-Title", "Salzol")
+		opts = append(opts, option.WithHeader("X-Title", "Salzol"))
 	}
-	res, err := cl.HTTP.Do(req)
-	if err != nil {
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return nil, &Error{Msg: "בוטל", Kind: "network"}
+	return openai.NewClient(opts...)
+}
+
+// sdkErr turns an SDK error into the app's Error (Hebrew message, kind for the runner).
+func sdkErr(ctx context.Context, err error) *Error {
+	var ae *openai.Error
+	if errors.As(err, &ae) {
+		ra := ""
+		if ae.Response != nil {
+			ra = ae.Response.Header.Get("Retry-After")
 		}
-		return nil, &Error{Msg: "אין חיבור לשרת: " + shortErr(err), Kind: "network", RetryAfter: 10 * time.Second}
+		return errorOf(ae.StatusCode, []byte(ae.RawJSON()), ra)
 	}
-	defer res.Body.Close()
-	b, _ := io.ReadAll(io.LimitReader(res.Body, 8<<20))
-	if res.StatusCode >= 300 {
-		return nil, errorOf(res.StatusCode, b, res.Header.Get("Retry-After"))
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return &Error{Msg: "בוטל", Kind: "network"}
 	}
-	return b, nil
+	return &Error{Msg: "אין חיבור לשרת: " + shortErr(err), Kind: "network", RetryAfter: 10 * time.Second}
 }
 
 func shortErr(err error) string {
@@ -145,6 +156,147 @@ func shortErr(err error) string {
 	}
 	return s
 }
+
+func messages(msgs []Message) []openai.ChatCompletionMessageParamUnion {
+	var out []openai.ChatCompletionMessageParamUnion
+	for _, m := range msgs {
+		switch m.Role {
+		case "system":
+			out = append(out, openai.SystemMessage(m.Content))
+		case "assistant":
+			out = append(out, openai.AssistantMessage(m.Content))
+		default:
+			out = append(out, openai.UserMessage(m.Content))
+		}
+	}
+	return out
+}
+
+// CallTool asks the model to answer by calling tool (forced), and returns the call's arguments. When
+// the provider rejects tools, or answers without calling it, the same request is repeated once in JSON
+// mode with the schema in the prompt, and that provider is asked in JSON mode from then on.
+// No max_tokens is sent: every request may use the model's whole output limit.
+func (cl *Client) CallTool(ctx context.Context, c Config, msgs []Message, tool Tool, timeout time.Duration) (json.RawMessage, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	base := strings.TrimSpace(c.BaseURL)
+	cl.mu.Lock()
+	jsonMode := cl.noTool[base]
+	cl.mu.Unlock()
+	if !jsonMode {
+		params := openai.ChatCompletionNewParams{
+			Model:       strings.TrimSpace(c.Model),
+			Messages:    messages(msgs),
+			Temperature: openai.Float(0),
+			Tools: []openai.ChatCompletionToolUnionParam{openai.ChatCompletionFunctionTool(shared.FunctionDefinitionParam{
+				Name: tool.Name, Description: openai.String(tool.Description), Parameters: shared.FunctionParameters(tool.Schema),
+			})},
+			ToolChoice: openai.ToolChoiceOptionFunctionToolChoice(openai.ChatCompletionNamedToolChoiceFunctionParam{Name: tool.Name}),
+		}
+		cli := cl.sdk(c)
+		res, err := cli.Chat.Completions.New(ctx, params)
+		if err == nil && len(res.Choices) > 0 {
+			for _, tc := range res.Choices[0].Message.ToolCalls {
+				if tc.Function.Name == tool.Name && strings.TrimSpace(tc.Function.Arguments) != "" {
+					return json.RawMessage(tc.Function.Arguments), nil
+				}
+			}
+			// answered in text: maybe JSON anyway
+			if m := ParseJSON(res.Choices[0].Message.Content); m != nil {
+				b, _ := json.Marshal(m)
+				return b, nil
+			}
+		}
+		if err != nil {
+			e := sdkErr(ctx, err)
+			if e.Status >= 500 && ctx.Err() == nil {
+				// Gemini sometimes fails while generating a long tool call (an empty 503: its
+				// "malformed function call"); the same request is deterministic at temperature 0,
+				// so this one request is asked again in JSON mode instead of retried as is.
+				if args, jerr := cl.jsonMode(ctx, c, msgs, tool); jerr == nil {
+					return args, nil
+				}
+				return nil, e
+			}
+			if e.Status != 400 || !strings.Contains(strings.ToLower(e.Msg), "tool") && !strings.Contains(strings.ToLower(e.Msg), "function") {
+				return nil, e
+			}
+		}
+		cl.mu.Lock()
+		if cl.noTool == nil {
+			cl.noTool = map[string]bool{}
+		}
+		cl.noTool[base] = true // this provider/model doesn't do forced tool calls: JSON mode
+		cl.mu.Unlock()
+	}
+	return cl.jsonMode(ctx, c, msgs, tool)
+}
+
+// jsonMode asks for the tool's arguments as a JSON object in the reply (response_format json_object),
+// the schema given in the prompt: for providers or requests where forced tool calls fail.
+func (cl *Client) jsonMode(ctx context.Context, c Config, msgs []Message, tool Tool) (json.RawMessage, error) {
+	schema, _ := json.Marshal(tool.Schema)
+	jm := append(append([]Message(nil), msgs...), Message{"user", "Answer with one JSON object only, no other text, matching this JSON schema (the arguments of " + tool.Name + "): " + string(schema)})
+	params := openai.ChatCompletionNewParams{
+		Model: strings.TrimSpace(c.Model), Messages: messages(jm), Temperature: openai.Float(0),
+		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{OfJSONObject: &shared.ResponseFormatJSONObjectParam{}},
+	}
+	cli := cl.sdk(c)
+	res, err := cli.Chat.Completions.New(ctx, params)
+	if err != nil {
+		return nil, sdkErr(ctx, err)
+	}
+	if len(res.Choices) == 0 {
+		return nil, &Error{Msg: "התשובה הגיעה ריקה", Kind: "bad"}
+	}
+	m := ParseJSON(res.Choices[0].Message.Content)
+	if m == nil {
+		return nil, &Error{Msg: "המודל לא ענה בפורמט הנדרש", Kind: "bad"}
+	}
+	b, _ := json.Marshal(m)
+	return b, nil
+}
+
+// Models lists the provider's chat models, the preset's preferred ones first.
+func (cl *Client) Models(ctx context.Context, c Config) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	cli := cl.sdk(c)
+	page, err := cli.Models.List(ctx)
+	if err != nil {
+		return nil, sdkErr(ctx, err)
+	}
+	var out []string
+	for _, m := range page.Data {
+		id := strings.TrimPrefix(m.ID, "models/")
+		if id != "" && !notChat.MatchString(id) {
+			out = append(out, id)
+		}
+	}
+	pref := func(id string) bool {
+		switch c.Preset {
+		case "gemini":
+			return strings.Contains(id, "flash") || strings.Contains(id, "hydrogen")
+		case "openrouter":
+			return strings.HasSuffix(id, ":free")
+		}
+		return false
+	}
+	sort.SliceStable(out, func(a, b int) bool {
+		if pref(out[a]) != pref(out[b]) {
+			return pref(out[a])
+		}
+		return out[a] < out[b]
+	})
+	return out, nil
+}
+
+var notChat = regexp.MustCompile(`(?i)embed|tts|whisper|audio|image|imagen|veo|aqa|guard|moderation|lyria|robotics|live|transcribe|computer-use|deep-research`)
+
+// StatusTool is the connection test: a model that can call it can do the app's tasks.
+var StatusTool = Tool{Name: "report_status", Description: "Report that you received the request.", Schema: map[string]any{
+	"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean", "description": "always true"}}, "required": []string{"ok"},
+}}
 
 var keyRx = regexp.MustCompile(`(?i)(key|token)[=:]\s*\S+`)
 
@@ -192,80 +344,9 @@ func errorOf(status int, body []byte, retryAfter string) *Error {
 		if wait == 0 {
 			wait = 10 * time.Second
 		}
-		return &Error{Msg: fmt.Sprintf("שגיאת שרת אצל הספק (%d)", status), Status: status, RetryAfter: wait, Kind: "network"}
+		return &Error{Msg: fmt.Sprintf("שגיאת שרת אצל הספק (%d)%s", status, suffix), Status: status, RetryAfter: wait, Kind: "network"}
 	}
 	return &Error{Msg: fmt.Sprintf("שגיאה %d%s", status, suffix), Status: status, Kind: "bad"}
-}
-
-// Chat is one completion at temperature 0; returns the text.
-func (cl *Client) Chat(ctx context.Context, c Config, msgs []Message, maxTokens int, timeout time.Duration) (string, error) {
-	b, err := cl.do(ctx, c, "POST", "/chat/completions", map[string]any{"model": strings.TrimSpace(c.Model), "messages": msgs, "temperature": 0, "max_tokens": maxTokens}, timeout)
-	if err != nil {
-		return "", err
-	}
-	var r struct {
-		Choices []struct {
-			Message struct {
-				Content json.RawMessage `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if json.Unmarshal(b, &r) != nil || len(r.Choices) == 0 {
-		return "", &Error{Msg: "תשובה לא תקינה מהשרת", Kind: "bad"}
-	}
-	var s string
-	if json.Unmarshal(r.Choices[0].Message.Content, &s) != nil { // a few servers send parts
-		var parts []struct {
-			Text string `json:"text"`
-		}
-		json.Unmarshal(r.Choices[0].Message.Content, &parts)
-		for _, p := range parts {
-			s += p.Text
-		}
-	}
-	if s == "" {
-		return "", &Error{Msg: "התשובה הגיעה ריקה", Kind: "bad"}
-	}
-	return s, nil
-}
-
-var notChat = regexp.MustCompile(`(?i)embed|tts|whisper|audio|image|imagen|veo|aqa|guard|moderation|lyria|robotics|live|transcribe|computer-use|deep-research`)
-
-// Models lists the provider's chat models, the preset's preferred ones first.
-func (cl *Client) Models(ctx context.Context, c Config) ([]string, error) {
-	b, err := cl.do(ctx, c, "GET", "/models", nil, 20*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	var r struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	json.Unmarshal(b, &r)
-	var out []string
-	for _, m := range r.Data {
-		id := strings.TrimPrefix(m.ID, "models/")
-		if id != "" && !notChat.MatchString(id) {
-			out = append(out, id)
-		}
-	}
-	pref := func(id string) bool {
-		switch c.Preset {
-		case "gemini":
-			return strings.Contains(id, "flash") || strings.Contains(id, "hydrogen")
-		case "openrouter":
-			return strings.HasSuffix(id, ":free")
-		}
-		return false
-	}
-	sort.SliceStable(out, func(a, b int) bool {
-		if pref(out[a]) != pref(out[b]) {
-			return pref(out[a])
-		}
-		return out[a] < out[b]
-	})
-	return out, nil
 }
 
 // ParseJSON reads a JSON object out of a model's answer, tolerating code fences and text around it.
@@ -282,9 +363,10 @@ func ParseJSON(text string) map[string]json.RawMessage {
 	return nil
 }
 
-// Run sends n requests one after another at the provider's pace, retrying after "too many requests"
-// or a server error, and stopping on anything else. Returns the error message when it stopped early.
-func Run(ctx context.Context, cl *Client, c Config, n int, ask func(i int) []Message, onAnswer func(i int, json map[string]json.RawMessage), onProgress func(done int), maxTokens int, timeout time.Duration, wait func(context.Context, time.Duration)) string {
+// Run sends n requests one after another at the provider's pace, each answered by a forced call to
+// tool, retrying after "too many requests" or a server error and stopping on anything else. Returns
+// the error message when it stopped early.
+func Run(ctx context.Context, cl *Client, c Config, n int, tool Tool, ask func(i int) []Message, onAnswer func(i int, args json.RawMessage), onProgress func(done int), timeout time.Duration, wait func(context.Context, time.Duration)) string {
 	if wait == nil {
 		wait = func(ctx context.Context, d time.Duration) {
 			select {
@@ -299,9 +381,9 @@ func Run(ctx context.Context, cl *Client, c Config, n int, ask func(i int) []Mes
 			wait(ctx, gap)
 		}
 		for tries := 0; ; tries++ {
-			text, err := cl.Chat(ctx, c, ask(i), maxTokens, timeout)
+			args, err := cl.CallTool(ctx, c, ask(i), tool, timeout)
 			if err == nil {
-				onAnswer(i, ParseJSON(text))
+				onAnswer(i, args)
 				break
 			}
 			if ctx.Err() != nil {

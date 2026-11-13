@@ -73,31 +73,66 @@ func TestReadRecordAndStore(t *testing.T) {
 	}
 }
 
-// A stand-in OpenAI-compatible server: one 429 first, then classification and deal-check answers.
-func fakeServer(t *testing.T, calls *int32) *httptest.Server {
-	num := regexp.MustCompile(`(?m)^(\d+)\. `)
+// A stand-in OpenAI-compatible server: one 429 first, then answers by calling the forced tool
+// (or, when noTools, rejects tools with a 400 and answers JSON mode instead).
+func fakeServer(t *testing.T, calls *int32, noTools bool) *httptest.Server {
+	num := regexp.MustCompile(`(?m)^\s*(\d+)\. `)
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if atomic.AddInt32(calls, 1) == 1 {
 			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(429)
 			return
 		}
-		var body struct{ Messages []Message }
+		var body struct {
+			Messages   []Message
+			Tools      []map[string]any
+			ToolChoice map[string]any `json:"tool_choice"`
+		}
 		b, _ := io.ReadAll(r.Body)
 		json.Unmarshal(b, &body)
+		if noTools && len(body.Tools) > 0 {
+			w.WriteHeader(400)
+			w.Write([]byte(`{"error":{"message":"tools are not supported for this model"}}`))
+			return
+		}
+		tool := ""
+		if fn, ok := body.ToolChoice["function"].(map[string]any); ok {
+			tool, _ = fn["name"].(string)
+		}
 		u := body.Messages[len(body.Messages)-1].Content
-		out := map[string]any{}
-		if strings.Contains(body.Messages[0].Content, "product database") {
-			for _, m := range num.FindAllStringSubmatch(u, -1) {
-				out[m[1]] = []any{"סוג", "dairy", "מותג", "", "", nil, []string{}, 0, 0}
-			}
-		} else {
-			for i := 1; strings.Contains(u, "P"+itoa(i)+" ["); i++ {
-				out["P"+itoa(i)] = map[string][]int{"yes": {1}, "no": {2}}
+		if noTools {
+			u = body.Messages[len(body.Messages)-2].Content
+			if strings.Contains(body.Messages[0].Content, "product database") {
+				tool = "record_products"
+			} else {
+				tool = "record_verdicts"
 			}
 		}
-		ans, _ := json.Marshal(out)
-		resp, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": string(ans)}}}})
+		var args any
+		switch tool {
+		case "record_products":
+			var ps []any
+			for _, m := range num.FindAllStringSubmatch(u, -1) {
+				n := m[1]
+				ps = append(ps, map[string]any{"n": json.Number(n), "type": "סוג", "category": "dairy", "brand": "מותג", "tags": []string{}, "own_brand": false, "unsure": false})
+			}
+			args = map[string]any{"products": ps}
+		case "record_verdicts":
+			var ps []any
+			for i := 1; strings.Contains(u, "P"+itoa(i)+" ["); i++ {
+				ps = append(ps, map[string]any{"p": i, "yes": []int{1}, "no": []int{2}, "unclear": []int{}})
+			}
+			args = map[string]any{"promotions": ps}
+		}
+		a, _ := json.Marshal(args)
+		msg := map[string]any{"role": "assistant", "content": ""}
+		if noTools {
+			msg["content"] = string(a)
+		} else {
+			msg["tool_calls"] = []any{map[string]any{"id": "c1", "type": "function", "function": map[string]any{"name": tool, "arguments": string(a)}}}
+		}
+		resp, _ := json.Marshal(map[string]any{"id": "x", "object": "chat.completion", "model": "m", "choices": []any{map[string]any{"index": 0, "finish_reason": "tool_calls", "message": msg}}})
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(resp)
 	}))
 }
@@ -105,8 +140,14 @@ func fakeServer(t *testing.T, calls *int32) *httptest.Server {
 func itoa(i int) string { return string(rune('0' + i)) }
 
 func TestEnrichAndCheckRuns(t *testing.T) {
+	for _, noTools := range []bool{false, true} {
+		t.Run(map[bool]string{false: "tool calls", true: "json fallback"}[noTools], func(t *testing.T) { enrichAndCheck(t, noTools) })
+	}
+}
+
+func enrichAndCheck(t *testing.T, noTools bool) {
 	var calls int32
-	srv := fakeServer(t, &calls)
+	srv := fakeServer(t, &calls, noTools)
 	defer srv.Close()
 	c := Config{On: true, Preset: "custom", BaseURL: strings.Replace(srv.URL, "127.0.0.1", "localhost", 1), Model: "m", Key: "k"}
 	cl := &Client{HTTP: srv.Client()}
