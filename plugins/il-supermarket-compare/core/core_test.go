@@ -203,7 +203,9 @@ func TestBuildCatalogChainOwnItems(t *testing.T) {
 
 // Nothing a price file lists is lost: unpriced rows, rows without a code, and outlier prices are kept.
 func TestBuildCatalogKeepsEveryRow(t *testing.T) {
-	mk := func(chain string, items ...Item) StoreData { return StoreData{Store: Store{Chain: chain}, Items: items} }
+	mk := func(chain string, items ...Item) StoreData {
+		return StoreData{Store: Store{Chain: chain}, Items: items}
+	}
 	stores := []StoreData{
 		mk("A", Item{Code: "7290000000033", Name: "יין", NoPrice: true}, Item{Code: "7290000000044", Name: "סבון", Price: 10}, Item{Name: "פריט בלי קוד", Price: 5}),
 		mk("B", Item{Code: "7290000000044", Name: "סבון", Price: 9}, Item{Code: "7290000000055", Name: "קפה", NoPrice: true}, Item{Code: "7290000000055", Name: "קפה", Price: 20}),
