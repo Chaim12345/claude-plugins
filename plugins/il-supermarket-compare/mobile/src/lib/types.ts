@@ -31,7 +31,11 @@ export type Category = { id: string; name: string };
  * size: [total amount, unit, chains that agree]. stale: [store index, days since the branch last sold it] (14+).
  * chg: [store index, days since the branch changed the price] (within 30).
  */
-export type ProductMeta = { size?: [number, "g" | "ml" | "u", number]; maker?: string; il?: boolean; stale?: [number, number][]; chg?: [number, number][] };
+export type ProductMeta = {
+  size?: [number, "g" | "ml" | "u", number]; maker?: string; il?: boolean; stale?: [number, number][]; chg?: [number, number][];
+  raw?: string; // set on the phone by AI curation (curate.ts): the name the price files gave, when it was tidied
+  linked?: string[]; // set on the phone by AI curation: other barcodes of the same product, merged into this one
+};
 
 // [code, name, category, weighted (1 = per kg), prices in agorot per store, matched names, image code, metadata]
 export type RawProduct = [string, string, string, 0 | 1, (number | null)[], (string | null)[] | null, string | null | undefined, (ProductMeta | null)?];

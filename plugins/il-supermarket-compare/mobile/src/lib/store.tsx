@@ -3,6 +3,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { compare, makeDeals, toProducts, type ClubPrefs, type Comparison, type Deals } from "./compare";
 import { addedCount, discoverLine, isDiscovering, nextNote, shouldCheckDiscovery, type DiscoverResult } from "./discover";
 import { dlog, installCrashLogging, loadLog } from "./debuglog";
+import { aliases, curateCatalog } from "./curate";
+import { loadCuration, useCuration } from "./curationState";
 import { engine } from "./engine";
 import { bumpFreq, diffCatalogs, mergeChanges, trimFreq, type Change, type Freq } from "./insights";
 import { accept, dismiss, emptyFeedback, expire, type Basket, type Feedback, type Rec } from "./recommend";
@@ -15,7 +17,8 @@ type SyncState = { running: boolean; events: SyncEvent[]; error: string | null; 
 const sleep = (ms: number) => new Promise<void>(res => setTimeout(res, ms));
 
 type Ctx = {
-  catalog: Catalog | null;
+  catalog: Catalog | null; // with the user's AI curation applied (merged products, tidied names, categories)
+  rawCatalog: Catalog | null; // as the price files gave it
   products: Map<string, Product>;
   active: number[]; // indexes of stores being compared
   cart: Cart;
@@ -71,7 +74,7 @@ async function load<T>(k: string, d: T): Promise<T> {
 const save = (k: string, v: unknown) => AsyncStorage.setItem(k, JSON.stringify(v)).catch(() => {});
 
 export function DataProvider({ children }: { children: ReactNode }) {
-  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [rawCatalog, setCatalog] = useState<Catalog | null>(null);
   const [cart, setCart] = useState<Cart>({});
   const [place, setPlace] = useState<Place | null>(null);
   const [off, setOff] = useState<string[]>([]);
@@ -151,7 +154,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       installCrashLogging();
-      await loadLog();
+      await Promise.all([loadLog(), loadCuration()]);
       dlog("app", "start");
       const [c, p, o, sv, cl, fq, ch, bs, rf] = await Promise.all([load<Cart>(KEY.cart, {}), load<Place | null>(KEY.place, null), load<string[]>(KEY.off, []), load<SavedList[]>(KEY.saved, []), load<ClubPrefs>(KEY.club, {}), load<Freq>(KEY.freq, {}), load<Change[]>(KEY.changes, []), load<Basket[]>(KEY.baskets, []), load<Feedback>(KEY.recfb, emptyFeedback())]);
       setBaskets(Array.isArray(bs) ? bs : []);
@@ -165,6 +168,27 @@ export function DataProvider({ children }: { children: ReactNode }) {
     })();
   }, [runSyncFor]);
 
+  const cur = useCuration();
+  const catalog = useMemo(() => (rawCatalog ? curateCatalog(rawCatalog, cur) : null), [rawCatalog, cur]);
+  // products merged by AI curation: carts, past baskets and the regulars move to the product they joined
+  const alias = useMemo(() => (rawCatalog ? aliases(rawCatalog, cur) : new Map<string, string>()), [rawCatalog, cur]);
+  useEffect(() => {
+    if (!alias.size) return;
+    const move = <T extends Record<string, number>>(o: T): T | null => {
+      if (!Object.keys(o).some(k => alias.has(k))) return null;
+      const out: Record<string, number> = {};
+      for (const [k, v] of Object.entries(o)) { const to = alias.get(k) ?? k; out[to] = (out[to] ?? 0) + v; }
+      return out as T;
+    };
+    setCart(prev => { const n = move(prev); if (!n) return prev; save(KEY.cart, n); return n; });
+    setFreq(prev => {
+      if (!Object.keys(prev).some(k => alias.has(k))) return prev;
+      const n: Freq = {};
+      for (const [k, v] of Object.entries(prev)) { const to = alias.get(k) ?? k; if (!n[to]) n[to] = v; }
+      save(KEY.freq, n);
+      return n;
+    });
+  }, [alias]);
   const products = useMemo(() => (catalog ? toProducts(catalog) : new Map<string, Product>()), [catalog]);
   const active = useMemo(() => (catalog ? catalog.stores.map((_, i) => i).filter(i => !off.includes(catalog.stores[i].id)) : []), [catalog, off]);
   const deals = useMemo(() => (catalog?.promos ? makeDeals(catalog, club) : undefined), [catalog, club]);
@@ -182,7 +206,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   });
 
   const value: Ctx = {
-    catalog, products, active, cart, place, sync, comparison, deals, club, ready, saved, freq, changes, baskets, recFeedback,
+    catalog, rawCatalog, products, active, cart, place, sync, comparison, deals, club, ready, saved, freq, changes, baskets, recFeedback,
     dismissRec(r) {
       setRecFeedback(prev => { const next = dismiss(prev, r, Date.now()); save(KEY.recfb, next); return next; });
       dlog("recommend", "dismissed", { code: r.p.code, source: r.source });

@@ -148,7 +148,7 @@ export function withoutSize(name: string): string {
 
 const sizeCache = new Map<string, Size | null>();
 
-type Sized = { code: string; name: string; cat: string; weighted?: boolean; meta?: { size?: [number, "g" | "ml" | "u", number] } | null };
+type Sized = { code: string; name: string; cat: string; weighted?: boolean; meta?: { size?: [number, "g" | "ml" | "u", number]; raw?: string } | null };
 const KIND_OF = { g: "weight", ml: "volume", u: "count" } as const;
 
 /**
@@ -161,10 +161,11 @@ const KIND_OF = { g: "weight", ml: "volume", u: "count" } as const;
 export function sizeOf(p: Sized): Size | null {
   if (p.weighted) return null;
   const s = p.meta?.size;
-  const k = `${p.code}|${p.name}|${s ? s.join(":") : ""}`;
+  const name = p.meta?.raw ?? p.name; // a name tidied by AI curation: the size is read from the original
+  const k = `${p.code}|${name}|${s ? s.join(":") : ""}`;
   let z = sizeCache.get(k);
   if (z !== undefined) return z;
-  const named = parseSize(p.name, p.cat);
+  const named = parseSize(name, p.cat);
   z = named;
   if (s && KIND_OF[s[1]] && s[0] > 0) {
     const stated: Size = { kind: KIND_OF[s[1]], amount: s[0], packs: 1 };

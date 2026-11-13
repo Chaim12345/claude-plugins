@@ -9,7 +9,8 @@ export function toProducts(c: Catalog): Map<string, Product> {
   const m = new Map<string, Product>();
   for (const [code, name, cat, w, prices, picks, img, meta] of c.products) {
     // the manufacturer is searchable: "אסם" finds Osem's products whose names don't say so
-    const key = meta?.maker && !norm(name).includes(norm(meta.maker)) ? `${norm(name)} ${norm(meta.maker)}` : norm(name);
+    let key = meta?.maker && !norm(name).includes(norm(meta.maker)) ? `${norm(name)} ${norm(meta.maker)}` : norm(name);
+    if (meta?.raw) key += ` ${norm(meta.raw)}`; // a tidied name: the original stays searchable
     m.set(code, { code, name, cat, weighted: w === 1, prices, picks, img: img ?? null, key, meta: meta ?? null });
   }
   return m;

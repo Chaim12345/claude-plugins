@@ -68,12 +68,12 @@ export function batches(gs: AskGroup[], maxChars = BATCH_CHARS): AskGroup[][] {
   return out;
 }
 
-const SYSTEM = `You check Israeli supermarket promotions. Each promotion has the chain's own Hebrew wording and the products its price file lists under it.
+const SYSTEM = `You check Israeli supermarket promotions. Each promotion has the chain's own Hebrew wording and the products its price file lists under it. The chain chose to list these products under this promotion, so most of them belong to it.
 For each product, decide whether the promotion's wording covers it:
-- "yes": the wording names this product, its brand or product line, or a category it clearly belongs to (for example "כל מגוון חטיפי אסם" covers an Osem snack; "מגוון יוגורטים" covers a yogurt).
-- "no": the wording clearly describes something else (a different product type, a different brand, or a size or variety this product is not).
-- "unclear": the wording is too generic to tell (for example only "מבצע" or "הנחה"), or you are not sure.
-Hebrew abbreviations are common: גר' = grams, ל' = litre, מ"ל = ml, יח' = units, ב- = for (price).
+- "yes": the wording names this product, its brand, its product line, or a category it fits (for example "חטיפי אסם" covers Bamba and Bissli, which Osem makes; "מגוון יוגורטים" covers a yogurt; "סלטי אחלה" covers Achla hummus and tahini salads, an Achla/Strauss line).
+- "no": only when the wording clearly describes something else: a different product type (soap listed under a snack promotion), a different named brand (Pepsi wording, a 7up product), or a pack size far outside the range the wording gives.
+- "unclear": generic wording ("מבצע", "הנחה", a store-brand discount such as "מותג שופרסל" when the name doesn't show the brand), or a product line you don't know. Brand lines are often unfamiliar: when the product type fits the wording and the brand might be the one named, answer "unclear" or "yes", never "no".
+Hebrew abbreviations are common: גר'/ג = grams, ל' = litre, מ"ל = ml, יח' = units, 2ב30 = two for 30 shekels.
 Answer with JSON only, no other text, in exactly this shape:
 {"P1":{"yes":[1,2],"no":[3],"unclear":[]},"P2":{...}}
 using the promotion labels and product numbers given.`;

@@ -1,3 +1,4 @@
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Linking, Platform, Pressable, Switch, Text, TextInput, View } from "react-native";
 import { useAi } from "../../lib/ai";
@@ -13,6 +14,7 @@ import { Chip, Hint, SettingsSection } from "./SettingsSection";
  */
 export function AiSettings() {
   const t = useTheme();
+  const router = useRouter();
   const { t: tr, tx } = useSettings();
   const { cfg, setCfg, loaded, verdicts, status, test, models, clear, cancel } = useAi();
   const [showKey, setShowKey] = useState(false);
@@ -103,6 +105,7 @@ export function AiSettings() {
           {s.yes + s.no + s.unclear ? <Button kind="ghost" title={tr("ai.clear")} onPress={clear} style={{ flex: 1 }} /> : null}
         </View>
       </View>
+      <Button kind="ghost" title={tr("ai.catalog")} onPress={() => router.push("/catalog")} />
       <Hint>{tr("ai.privacy")}</Hint>
     </SettingsSection>
   );

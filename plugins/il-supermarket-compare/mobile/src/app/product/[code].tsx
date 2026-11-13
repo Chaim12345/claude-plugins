@@ -21,7 +21,8 @@ export default function ProductSheet() {
   const { catalog, products, active, cart, setQty, deals, changes } = useData();
   const { isFollowed, state } = useWatch();
   const [now] = useState(Date.now);
-  const p = products.get(String(code));
+  // a barcode that AI curation merged into another product opens that product
+  const p = products.get(String(code)) ?? [...products.values()].find(x => x.meta?.linked?.includes(String(code)));
   if (!catalog || !p) {
     return <View style={{ flex: 1, padding: 24 }}><T>המוצר לא נמצא במחירון הנוכחי.</T><Button title="חזרה" onPress={() => router.back()} /></View>;
   }
@@ -55,6 +56,8 @@ export default function ProductSheet() {
           <T style={{ color: t.ink2, fontSize: 13 }}>{p.weighted ? "מחיר לק״ג · מוצר מקביל בכל רשת" : `ברקוד ${p.code}`}</T>
           {size && lo > 0 ? <T style={{ color: t.ink2, fontSize: 13 }}>גודל: {sizeText(size)}{size.packs > 1 ? ` (${size.packs} אריזות)` : ""} · {unitText(unitPrice(size, lo)!)} במחיר הזול ביותר</T> : null}
           {facts ? <T style={{ color: t.ink2, fontSize: 13 }}>{facts}</T> : null}
+          {p.meta?.raw ? <T style={{ color: t.ink2, fontSize: 12 }}>השם במחירון: {p.meta.raw} (סודר ב־AI)</T> : null}
+          {p.meta?.linked?.length ? <T style={{ color: t.ink2, fontSize: 12 }}>אוחד עם ברקוד {p.meta.linked.join(", ")}: אותו מוצר ברשתות אחרות (AI)</T> : null}
         </View>
       </View>
       {rows.length > 1 && hi > lo ? (

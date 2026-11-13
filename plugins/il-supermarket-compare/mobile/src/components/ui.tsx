@@ -68,11 +68,11 @@ export function DealBadge({ text, club }: { text: string; club?: boolean }) {
   );
 }
 
-export function Button({ title, onPress, kind = "primary", disabled, style, icon }: { title: string; onPress: () => void; kind?: "primary" | "ghost"; disabled?: boolean; style?: StyleProp<ViewStyle>; icon?: ReactNode }) {
+export function Button({ title, onPress, kind = "primary", disabled, style, icon, label }: { title: string; onPress: () => void; kind?: "primary" | "ghost"; disabled?: boolean; style?: StyleProp<ViewStyle>; icon?: ReactNode; label?: string }) {
   const t = useTheme();
   const primary = kind === "primary";
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} disabled={disabled}
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={disabled ? { disabled: true } : undefined} onPress={onPress} disabled={disabled}
       style={({ pressed }) => [{ height: 44, borderRadius: 12, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6,
         backgroundColor: primary ? t.brand : t.surface2, opacity: disabled ? 0.5 : pressed ? 0.85 : 1 }, style]}>
       {icon}

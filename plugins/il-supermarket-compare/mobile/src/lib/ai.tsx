@@ -10,7 +10,8 @@ import { Platform } from "react-native";
 import { applyVerdicts, batches, groups, pending, prompt, prune, readAnswer, type Verdicts } from "./aicheck";
 import { dlog } from "./debuglog";
 import type { DealItem } from "./dealsFeed";
-import { DEFAULT_CONFIG, LlmError, chat, listModels, parseJsonLoose, presetOf, usable, type LlmConfig } from "./llm";
+import { runBatches } from "./airun";
+import { DEFAULT_CONFIG, chat, listModels, parseJsonLoose, usable, type LlmConfig } from "./llm";
 
 const CFG_KEY = "salzol.ai.config"; // secure store keys: letters, digits, ".", "-", "_"
 const VERDICTS_KEY = "salzol:ai:verdicts";
@@ -52,11 +53,6 @@ type Ctx = {
 };
 
 const AiCtx = createContext<Ctx | null>(null);
-
-const sleep = (ms: number, signal: AbortSignal) => new Promise<void>(res => {
-  const t = setTimeout(res, ms);
-  signal.addEventListener("abort", () => { clearTimeout(t); res(); });
-});
 
 export function AiProvider({ children }: { children: ReactNode }) {
   const [cfg, setCfgState] = useState<LlmConfig>(DEFAULT_CONFIG);
@@ -107,42 +103,15 @@ export function AiProvider({ children }: { children: ReactNode }) {
     const bs = batches(groups(todo, now)).slice(0, MAX_BATCHES);
     const ctl = new AbortController();
     run.current = { ctl };
-    const gap = Math.ceil(60_000 / presetOf(c).rpm);
     setStatus({ running: true, done: 0, total: bs.length });
     dlog("ai", `checking ${todo.length} flagged deals in ${bs.length} requests`, { model: c.model, base: c.baseUrl });
     (async () => {
-      let error: string | undefined;
       let checked = 0;
-      for (let i = 0; i < bs.length && !ctl.signal.aborted; i++) {
-        if (i) await sleep(gap, ctl.signal);
-        let tries = 0;
-        for (;;) {
-          try {
-            const r = await chat(c, prompt(bs[i]), { signal: ctl.signal, maxTokens: 4096 });
-            const json = parseJsonLoose(r.text);
-            if (!json) dlog("ai", "answer was not JSON", r.text.slice(0, 200));
-            const add = readAnswer(bs[i], json, Date.now());
-            checked += Object.keys(add).length;
-            merge(add);
-            dlog("ai", `request ${i + 1}/${bs.length}`, { in: r.tokensIn, out: r.tokensOut });
-            break;
-          } catch (e) {
-            const err = e as LlmError;
-            if (ctl.signal.aborted) break;
-            if ((err.kind === "quota" || err.kind === "network") && tries < 2 && err.retryAfterMs) {
-              tries++;
-              dlog("ai", `retry in ${Math.round(err.retryAfterMs / 1000)} s`, err.message);
-              await sleep(Math.min(err.retryAfterMs, 65_000), ctl.signal);
-              continue;
-            }
-            error = err.message ?? String(e);
-            dlog("ai", "stopped", error);
-            break;
-          }
-        }
-        if (error) break;
-        setStatus(s => ({ ...s, done: i + 1 }));
-      }
+      const error = await runBatches(c, bs.length, i => prompt(bs[i]), (i, json) => {
+        const add = readAnswer(bs[i], json, Date.now());
+        checked += Object.keys(add).length;
+        merge(add);
+      }, { signal: ctl.signal, maxTokens: 4096, timeoutMs: 120_000, tag: "ai", onProgress: done => setStatus(s => ({ ...s, done })) });
       run.current = null;
       setStatus(s => ({ ...s, running: false, error, at: Date.now(), checked }));
       const next = queued.current;

@@ -119,6 +119,7 @@ export const en: Record<keyof typeof he, string> = {
   "ai.error": "Checks stopped: {msg}",
   "ai.stats": "{yes} confirmed, {no} hidden, {unclear} unclear",
   "ai.clear": "Delete answers",
+  "ai.catalog": "Catalog tools: categories, names and merging products",
   "ai.privacy": "Only promotion texts and product names from the public price files are sent, never your cart, location or details about you. On the free tier Google may use requests to improve its products.",
   "deals.aiYes": "Confirmed by AI",
   "deals.aiUnclear": "The AI isn't sure either",
