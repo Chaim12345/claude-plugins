@@ -42,7 +42,6 @@ What the app does today, what to build next and why, and what needs help from ou
 3. **Per-branch opening hours and Shabbat closing.** These aren't in the price files. OSM `opening_hours` covers many branches, and could feed the map and the "go now" advice.
 4. **Accessibility pass.** Font scaling up to 200%, TalkBack labels on every control (most have them), and colour-blind-safe deal badges.
 5. **Web app parity.** The Expo web build is the same app, so deploy it with the Go server (one binary plus the static files) as the "no install" option.
-
 6. **Kashrut from a real source:** the chains' online-shop data or a community list. The name-based filter catches only about 1% of products.
 7. **Recommender v2:** learn the weights from accepted and dismissed cards (a small logistic model on the same features), not by hand.
 

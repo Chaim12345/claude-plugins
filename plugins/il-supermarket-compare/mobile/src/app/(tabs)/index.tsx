@@ -118,6 +118,19 @@ export default function Home() {
           </Card>
         ) : null}
 
+        {forYou.length ? (
+          <View style={{ gap: 10 }}>
+            <SectionHead title="בשבילך" sub={Object.keys(freq).length < 5 ? "כדאי להשוות: מוצרי יסוד עם פער מחירים גדול בין הסניפים. ככל שתקנו, ההמלצות ילמדו מכם." : "לפי מה שאתם קונים, מתי, ומה במבצע עכשיו. × מסתיר המלצה ומלמד אותנו."}
+              action={Object.keys(due).length >= 2 ? `הסל הקבוע (${Object.keys(due).length})` : undefined} onAction={() => addMany(due)} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+              {forYou.map(r => (
+                <RecCard key={r.p.code} p={r.p} reason={r.reason} price={r.price} qty={r.qty} inCart={cart[r.p.code] ?? 0}
+                  onAdd={() => acceptRec(r)} onDismiss={() => dismissRec(r)} onOpen={() => open(r.p.code)} />
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
         <View style={{ gap: 10 }}>
           <SectionHead title="קטגוריות" action="כל המוצרים" onAction={() => browse("all")} />
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -132,19 +145,6 @@ export default function Home() {
             ))}
           </View>
         </View>
-
-        {forYou.length ? (
-          <View style={{ gap: 10 }}>
-            <SectionHead title="בשבילך" sub={Object.keys(freq).length < 5 ? "כדאי להשוות: מוצרי יסוד עם פער מחירים גדול בין הסניפים. ככל שתקנו, ההמלצות ילמדו מכם." : "לפי מה שאתם קונים, מתי, ומה במבצע עכשיו. × מסתיר המלצה ומלמד אותנו."}
-              action={Object.keys(due).length >= 2 ? `הסל הקבוע (${Object.keys(due).length})` : undefined} onAction={() => addMany(due)} />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-              {forYou.map(r => (
-                <RecCard key={r.p.code} p={r.p} reason={r.reason} price={r.price} qty={r.qty} inCart={cart[r.p.code] ?? 0}
-                  onAdd={() => acceptRec(r)} onDismiss={() => dismissRec(r)} onOpen={() => open(r.p.code)} />
-              ))}
-            </ScrollView>
-          </View>
-        ) : null}
 
         {oldFiles.length ? (
           <Pressable onPress={() => router.push("/insights")} accessibilityRole="button"
