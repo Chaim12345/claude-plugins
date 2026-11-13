@@ -7,6 +7,7 @@ What the app does today, what to build next and why, and what needs help from ou
 **Data engine (Go, runs on the phone)**
 - Every grocery chain in the official list (as tracked by the community scraper), from six kinds of portal: Shufersal, publishedprices (with each chain's published login, done automatically), Bina, laibcatalog, PublishPrice, City Market Shops, plus Wolt and Hazi Hinam. Added from the official list: KT Market and City Market's own portal (72 branches). Left out on purpose: the pharmacies (Super-Pharm, Good Pharm), and Meshnat Yosef's second portal, which publishes empty price files.
 - A branch that publishes nothing falls back to another listing of the same shop (same chain name, within 300 m), often on another portal.
+- Checked against the official gov.il page (29 retailers, saved Nov 2026): every grocery retailer on it has a client. Six of them refuse foreign IPs: Victory, Carrefour, Hazi Hinam, Mahsanei HaShuk, H. Cohen and Netiv HaHesed. Those, and Super Yuda's password login, are proven only once the app runs on a phone in Israel.
 - Barcode matching with outlier filtering, and name rules for fresh produce and meat. Promotions cover price, X-for-Y, percent off, "second one for X" and club deals, with unit limits taken from the text or `RedemptionLimit`.
 - Metadata the chains publish but nobody uses: pack size (agreed by chains), manufacturer, made in Israel, "not sold here for N days", and "price changed N days ago" (see `core/README.md`).
 - Any location: an embedded store directory (1,253 branches) and an offline address index. On-device discovery adds the chains that block foreign IPs.
@@ -47,7 +48,6 @@ What the app does today, what to build next and why, and what needs help from ou
 - **Receipts.** Photograph a receipt to record what you actually paid, then compare it with the files. That would catch shelf prices that don't match the published ones, which is a consumer-rights angle.
 - **Shared family list.** Sync a cart between two phones. This needs a small backend or a peer link.
 - **Price alerts by area.** For example, "eggs under ₪12 within 3 km".
-- **More chains from the gov.il list.** The official page (gov.il/he/pages/cpfta_prices_regulations) blocks automated fetches from here. Someone in Israel can save it, and any chain missing from `ChainNames` can be added with one of the five existing portal clients.
 
 ## Needs outside help
 
