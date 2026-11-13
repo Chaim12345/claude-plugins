@@ -167,3 +167,31 @@ func TestBuildCatalogOutliersAndFresh(t *testing.T) {
 		t.Errorf("cucumber = %v", cuke)
 	}
 }
+
+// A chain's own items (short internal codes, weighed items no fresh rule covers) are kept per chain,
+// even in one branch; barcoded goods follow minStores; weighed produce stays with the fresh rules.
+func TestBuildCatalogChainOwnItems(t *testing.T) {
+	mk := func(chain string, items ...Item) StoreData { return StoreData{Store: Store{Chain: chain}, Items: items} }
+	stores := []StoreData{
+		mk("A", Item{Code: "123", Name: "סלט טונה מעדניה", Price: 39.9, Weighted: true}, Item{Code: "7290000000011", Name: "חלב", Price: 6}, Item{Code: "4455", Name: "לחמניה מהמאפיה", Price: 1.5}),
+		mk("A", Item{Code: "123", Name: "סלט טונה מעדניה", Price: 41.9, Weighted: true}, Item{Code: "7290000000011", Name: "חלב", Price: 6.2}),
+		mk("B", Item{Code: "123", Name: "משהו אחר לגמרי", Price: 10}, Item{Code: "7290000000022", Name: "גבינה", Price: 9}, Item{Code: "2000001", Name: "עגבניה", Price: 6.9, Weighted: true}),
+	}
+	ps := BuildCatalog(stores, 2, []string{"A", "A", "B"})
+	got := map[string][]any{}
+	for _, p := range ps {
+		got[p[0].(string)] = p
+	}
+	if p := got["A:123"]; p == nil || p[3].(int) != 1 || p[4].([]any)[0] != 3990 || p[4].([]any)[1] != 4190 || p[4].([]any)[2] != nil {
+		t.Errorf("chain A's deli item: %v", p)
+	}
+	if got["B:123"] == nil || got["A:4455"] == nil {
+		t.Errorf("same internal code in two chains must be two products, and a one-branch internal item kept: %v", got)
+	}
+	if got["7290000000011"] == nil || got["7290000000022"] != nil {
+		t.Errorf("barcoded goods follow minStores")
+	}
+	if got["B:2000001"] != nil {
+		t.Errorf("weighed tomatoes belong to the fresh rule, not a chain item")
+	}
+}

@@ -1,13 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
-import { Pressable, ScrollView, Switch, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, ScrollView, Switch, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, T, useTheme } from "../components/ui";
 import { useAi } from "../lib/ai";
 import { BATCH, changes, counts, type Change, type TaskKind } from "../lib/curate";
 import { MAX_REQUESTS, useCurationRunner } from "../lib/curation";
 import { approveLink, resetAll, resetTask, setAutoLinks, setTaskOn, toggleUndo, useCuration } from "../lib/curationState";
+import { ENRICH_BATCH } from "../lib/enrich";
+import { useEnrichRunner } from "../lib/enrichRun";
+import { CAPS, clearEnrich, setEnrichSettings, useEnrich } from "../lib/enrichState";
 import { useData } from "../lib/store";
 
 const INFO: Record<TaskKind, { title: string; what: string; pending: (n: number) => string; icon: "albums-outline" | "text-outline" | "git-merge-outline" }> = {
@@ -39,7 +42,8 @@ export default function CatalogScreen() {
   const { rawCatalog } = useData();
   const { ready, cfg } = useAi();
   const cur = useCuration();
-  const { status, pending, run, cancel } = useCurationRunner();
+  const { status, pending, run, cancel, watch } = useCurationRunner();
+  useEffect(() => { watch(true); return () => watch(false); }, [watch]);
   const [open, setOpen] = useState<TaskKind | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const n = useMemo(() => (rawCatalog ? counts(rawCatalog, cur) : null), [rawCatalog, cur]);
@@ -62,6 +66,8 @@ export default function CatalogScreen() {
           </View>
         ) : <T style={{ color: t.ink2, fontSize: 12.5 }}>מודל: {cfg.model}</T>}
         {!rawCatalog ? <T style={{ color: t.ink2 }}>הקטלוג עוד לא נטען.</T> : null}
+
+        {rawCatalog ? <EnrichCard /> : null}
 
         {rawCatalog && n ? (["cats", "names", "links"] as TaskKind[]).map(k => {
           const s = status[k], c = n[k], info = INFO[k];
@@ -118,6 +124,76 @@ export default function CatalogScreen() {
           </View>
         ) : null}
       </ScrollView>
+    </View>
+  );
+}
+
+/** The background classification of every product: type, category, brand, variant, size, diet tags. */
+function EnrichCard() {
+  const t = useTheme();
+  const router = useRouter();
+  const { ready } = useAi();
+  const enr = useEnrich();
+  const { status: s, pending, total, run, stop, model } = useEnrichRunner();
+  const [modelText, setModelText] = useState(enr.settings.model);
+  const done = total - pending;
+  const used = enr.usage.day === new Date().toISOString().slice(0, 10) ? enr.usage.requests : 0;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  return (
+    <View style={{ backgroundColor: t.surface, borderRadius: 14, padding: 14, gap: 10, borderWidth: 1.5, borderColor: t.brand }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <Ionicons name="layers-outline" size={22} color={t.brand} />
+        <T style={{ flex: 1, fontSize: 17, fontWeight: "800" }}>סיווג כל המוצרים</T>
+        <Switch value={enr.settings.apply} onValueChange={v => setEnrichSettings({ apply: v })} accessibilityLabel="שימוש בסיווג באפליקציה" />
+      </View>
+      <T style={{ color: t.ink2, fontSize: 12.5, lineHeight: 18 }}>
+        המודל קורא כל מוצר ושומר במאגר בטלפון: סוג מוצר, קטגוריה, מותג, סדרה, טעם או אחוז שומן, גודל אריזה, תגיות תזונה וכשרות, והאם זה מותג פרטי של רשת. רץ ברקע בפתיחת האפליקציה ואחרי כל עדכון מחירים, רק על מוצרים חדשים או ששמם השתנה, מהנמכרים ביותר. המתג מימין קובע אם הסיווג משמש באפליקציה (קטגוריות, חיפוש, סינון וניתוח).
+      </T>
+      <View style={{ height: 8, borderRadius: 4, backgroundColor: t.surface2, overflow: "hidden" }}>
+        <View style={{ width: `${pct}%`, height: 8, backgroundColor: t.brand }} />
+      </View>
+      <T style={{ fontSize: 13.5, fontWeight: "600" }}>סווגו {done.toLocaleString("he-IL")} מתוך {total.toLocaleString("he-IL")} מוצרים ({pct}%)</T>
+      <T style={{ color: t.ink2, fontSize: 12.5 }}>היום: {used} מתוך {enr.settings.dailyCap} בקשות · {Math.ceil(pending / ENRICH_BATCH).toLocaleString("he-IL")} בקשות עד הסוף · מודל: {model}</T>
+      {s.running ? <T style={{ color: t.brand, fontSize: 12.5, fontWeight: "700" }}>רץ ברקע: {s.done} מתוך {s.total} בקשות · {s.added.toLocaleString("he-IL")} מוצרים סווגו עכשיו</T> : null}
+      {!s.running && s.at && !s.error ? <T style={{ color: t.ink2, fontSize: 12.5 }}>{s.stopped ? "נעצר" : "הסתיים"}: {s.added.toLocaleString("he-IL")} מוצרים{s.capped ? " · הגעתם למכסה היומית, ממשיכים מחר" : ""}</T> : null}
+      {s.capped && !s.at ? <T style={{ color: t.warn, fontSize: 12.5 }}>הגעתם למכסה היומית. אפשר להגדיל אותה למטה.</T> : null}
+      {s.error ? <T style={{ color: t.bad, fontSize: 12.5 }}>נעצר: {s.error}</T> : null}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <T style={{ flex: 1, fontSize: 13 }}>להריץ אוטומטית ברקע</T>
+        <Switch value={enr.settings.auto} onValueChange={v => setEnrichSettings({ auto: v })} accessibilityLabel="להריץ אוטומטית ברקע" />
+      </View>
+      <T style={{ fontSize: 13, fontWeight: "700" }}>מכסת בקשות ליום</T>
+      <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+        {CAPS.map(c => (
+          <Pressable key={c} onPress={() => setEnrichSettings({ dailyCap: c })} accessibilityRole="radio" accessibilityState={{ selected: enr.settings.dailyCap === c }}
+            style={{ paddingHorizontal: 12, minHeight: 32, justifyContent: "center", borderRadius: 999, borderWidth: 1, borderColor: enr.settings.dailyCap === c ? t.brand : t.line, backgroundColor: enr.settings.dailyCap === c ? t.brandSoft : t.surface }}>
+            <T style={{ fontSize: 12.5, fontWeight: "600" }}>{c}</T>
+          </Pressable>
+        ))}
+      </View>
+      <T style={{ fontSize: 13, fontWeight: "700" }}>מודל לסיווג</T>
+      <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+        {[["", `ברירת מחדל (${model === "gemini-4-hydrogen" && !enr.settings.model ? "Gemini 4 Hydrogen" : "מההגדרות"})`], ["gemini-4-hydrogen", "Hydrogen: מדויק, איטי"], ["gemini-flash-lite-latest", "Flash-Lite: מהיר"]].map(([id, label]) => (
+          <Pressable key={id} onPress={() => { setEnrichSettings({ model: id }); setModelText(id); }} accessibilityRole="radio" accessibilityState={{ selected: enr.settings.model === id }}
+            style={{ paddingHorizontal: 12, minHeight: 32, justifyContent: "center", borderRadius: 999, borderWidth: 1, borderColor: enr.settings.model === id ? t.brand : t.line, backgroundColor: enr.settings.model === id ? t.brandSoft : t.surface }}>
+            <T style={{ fontSize: 12.5, fontWeight: "600" }}>{label}</T>
+          </Pressable>
+        ))}
+      </View>
+      <TextInput value={modelText} onChangeText={setModelText} onEndEditing={() => setEnrichSettings({ model: modelText.trim() })} onBlur={() => setEnrichSettings({ model: modelText.trim() })}
+        placeholder="או שם מודל אחר" autoCapitalize="none" autoCorrect={false} accessibilityLabel="שם מודל לסיווג"
+        style={{ height: 40, borderRadius: 10, borderWidth: 1, borderColor: t.line, backgroundColor: t.surface2, paddingHorizontal: 10, color: t.ink, textAlign: "left", writingDirection: "ltr" }} placeholderTextColor={t.ink2} />
+      <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+        {s.running
+          ? <Button kind="ghost" title="עצירה" label="עצירה: סיווג כל המוצרים" onPress={stop} style={{ flex: 1 }} />
+          : <Button title={pending ? "להריץ עכשיו" : "הכל מסווג"} label="הרצה: סיווג כל המוצרים" disabled={!ready || !pending} onPress={run} style={{ flex: 1 }} />}
+        <Button kind="ghost" title="ניתוח הנתונים" disabled={!done} onPress={() => router.push("/analysis")} style={{ flex: 1 }} />
+      </View>
+      {done ? (
+        <Pressable onPress={() => { void clearEnrich(); }} accessibilityRole="button" hitSlop={6}>
+          <T style={{ color: t.ink2, fontSize: 12.5, textDecorationLine: "underline" }}>מחיקת כל הסיווג מהמאגר (יסווג מחדש)</T>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

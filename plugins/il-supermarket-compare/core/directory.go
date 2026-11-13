@@ -384,10 +384,9 @@ type NearStore struct {
 
 // ConfigFor turns a chosen set of stores into a sync config centred on the user's location.
 func ConfigFor(stores []NearStore, place string, lat, lon float64) Config {
-	cfg := Config{MinStores: 3, Areas: []Area{{Name: place, Lat: lat, Lon: lon}}}
-	if len(stores) < 3 {
-		cfg.MinStores = 2
-	}
+	// Every product any branch sells: one sold in a single branch is still worth finding (a chain's
+	// own line, an import), and the app marks it "only here" instead of comparing it.
+	cfg := Config{MinStores: 1, Areas: []Area{{Name: place, Lat: lat, Lon: lon}}}
 	for _, s := range stores {
 		la, lo := s.Lat, s.Lon
 		ref := StoreRef{Chain: s.Chain, StoreID: s.StoreID, ChainName: s.Banner, Branch: branchLabel(s.DirStore),

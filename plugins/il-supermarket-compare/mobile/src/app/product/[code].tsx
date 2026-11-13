@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { DIET_LABEL } from "../../lib/enrich";
 import { useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -53,9 +54,11 @@ export default function ProductSheet() {
         <ProductImage p={p} size={96} />
         <View style={{ flex: 1, gap: 4 }}>
           <T style={{ fontSize: 20, fontWeight: "800" }}>{p.name}</T>
-          <T style={{ color: t.ink2, fontSize: 13 }}>{p.weighted ? "מחיר לק״ג · מוצר מקביל בכל רשת" : `ברקוד ${p.code}`}</T>
+          <T style={{ color: t.ink2, fontSize: 13 }}>{p.weighted ? (p.picks ? "מחיר לק״ג · מוצר מקביל בכל רשת" : "מחיר לק״ג") : p.code.includes(":") ? `קוד ${p.code.split(":")[1]}` : `ברקוד ${p.code}`}</T>
           {size && lo > 0 ? <T style={{ color: t.ink2, fontSize: 13 }}>גודל: {sizeText(size)}{size.packs > 1 ? ` (${size.packs} אריזות)` : ""} · {unitText(unitPrice(size, lo)!)} במחיר הזול ביותר</T> : null}
           {facts ? <T style={{ color: t.ink2, fontSize: 13 }}>{facts}</T> : null}
+          {p.meta?.ai ? <T style={{ color: t.ink2, fontSize: 12.5 }}>{[p.meta.ai.t, p.meta.ai.b && `מותג: ${p.meta.ai.b}${p.meta.ai.pl ? " (פרטי)" : ""}`, p.meta.ai.l, p.meta.ai.v, ...p.meta.ai.d.map(x => DIET_LABEL[x])].filter(Boolean).join(" · ")} (סיווג AI)</T> : null}
+          {p.code.includes(":") ? <T style={{ color: t.ink2, fontSize: 12 }}>פריט של הרשת עם קוד פנימי: נמכר רק ברשת הזו</T> : null}
           {p.meta?.raw ? <T style={{ color: t.ink2, fontSize: 12 }}>השם במחירון: {p.meta.raw} (סודר ב־AI)</T> : null}
           {p.meta?.linked?.length ? <T style={{ color: t.ink2, fontSize: 12 }}>אוחד עם ברקוד {p.meta.linked.join(", ")}: אותו מוצר ברשתות אחרות (AI)</T> : null}
         </View>

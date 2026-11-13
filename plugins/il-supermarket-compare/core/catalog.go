@@ -49,7 +49,7 @@ type Store struct {
 
 // CatalogVersion is written to Catalog.Version. A stored catalog with an older version is rebuilt
 // from the files already downloaded, instead of being served as "unchanged".
-const CatalogVersion = 3
+const CatalogVersion = 4
 
 type Area struct {
 	Name string  `json:"name"`
@@ -166,6 +166,10 @@ const RamiLevyChain = "RamiLevi"
 //   - Packaged goods: same barcode in at least minStores stores. A price more than 4x off the product's
 //     median is dropped as a unit or data-entry error.
 //   - Fresh items: FreshRules, cheapest in-range match per store.
+//   - A chain's own items (internal codes shorter than a barcode, and items sold by weight that no fresh
+//     rule covers): one product per chain and code, keyed "<chain>:<code>", since those codes mean
+//     nothing outside the chain. Kept when sold in at least one branch: they are what makes a chain's
+//     deli, bakery and butcher counter findable.
 func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any {
 	n := len(stores)
 	type entry struct {
@@ -186,18 +190,32 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 		}
 	}
 	byCode := map[string]*entry{}
+	local := map[string]bool{} // keys of chain-own items
+	freshName := func(name string) bool {
+		for _, fr := range FreshRules {
+			if fr.inc.MatchString(name) && (fr.exc == nil || !fr.exc.MatchString(name)) {
+				return true
+			}
+		}
+		return false
+	}
 	for i, sd := range stores {
 		for _, it := range sd.Items {
+			key := it.Code
 			if len(it.Code) < 7 || it.Weighted {
-				continue
+				if it.Code == "" || it.Price <= 0 || (it.Weighted && freshName(it.Name)) {
+					continue // the fresh rules compare these across chains
+				}
+				key = chainOf[i] + ":" + it.Code
+				local[key] = it.Weighted
 			}
-			e := byCode[it.Code]
+			e := byCode[key]
 			if e == nil {
 				e = &entry{prices: make([]float64, n)}
 				for k := range e.prices {
 					e.prices[k] = math.NaN()
 				}
-				byCode[it.Code] = e
+				byCode[key] = e
 			}
 			if math.IsNaN(e.prices[i]) {
 				e.prices[i] = it.Price
@@ -215,7 +233,11 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 				have = append(have, p)
 			}
 		}
-		if len(have) < minStores {
+		need := minStores
+		if _, ok := local[code]; ok {
+			need = 1
+		}
+		if len(have) < need {
 			continue
 		}
 		med := median(have)
@@ -227,7 +249,7 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 				kept++
 			}
 		}
-		if kept < minStores {
+		if kept < need {
 			continue
 		}
 		name := e.names[0]
@@ -243,6 +265,17 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 			if meta.empty() {
 				meta = nil
 			}
+		}
+		if w, ok := local[code]; ok {
+			weighted, img := 0, any(nil)
+			if w {
+				weighted = 1
+			}
+			if ch, raw, _ := strings.Cut(code, ":"); ch == RamiLevyChain {
+				img = raw
+			}
+			products = append(products, product(code, name, cat, weighted, prices, nil, img, meta))
+			continue
 		}
 		products = append(products, product(code, name, cat, 0, prices, nil, code, meta))
 	}
@@ -298,9 +331,10 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 		return c
 	}
 	sort.SliceStable(products, func(a, b int) bool {
-		wa, wb := products[a][3].(int), products[b][3].(int)
+		// the cross-chain fresh products (they carry per-branch picks) first, then by branch count
+		wa, wb := products[a][5] != nil, products[b][5] != nil
 		if wa != wb {
-			return wa > wb
+			return wa
 		}
 		ca, cb := count(products[a]), count(products[b])
 		if ca != cb {

@@ -6,6 +6,7 @@ import { dlog, installCrashLogging, loadLog } from "./debuglog";
 import { aliases, curateCatalog } from "./curate";
 import { loadCuration, useCuration } from "./curationState";
 import { engine } from "./engine";
+import { loadEnrich, useEnrich } from "./enrichState";
 import { bumpFreq, diffCatalogs, mergeChanges, trimFreq, type Change, type Freq } from "./insights";
 import { accept, dismiss, emptyFeedback, expire, type Basket, type Feedback, type Rec } from "./recommend";
 import { cleanName, mergeCarts, newId, uniqueName, type SavedList } from "./saved";
@@ -154,7 +155,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       installCrashLogging();
-      await Promise.all([loadLog(), loadCuration()]);
+      await Promise.all([loadLog(), loadCuration(), loadEnrich()]);
       dlog("app", "start");
       const [c, p, o, sv, cl, fq, ch, bs, rf] = await Promise.all([load<Cart>(KEY.cart, {}), load<Place | null>(KEY.place, null), load<string[]>(KEY.off, []), load<SavedList[]>(KEY.saved, []), load<ClubPrefs>(KEY.club, {}), load<Freq>(KEY.freq, {}), load<Change[]>(KEY.changes, []), load<Basket[]>(KEY.baskets, []), load<Feedback>(KEY.recfb, emptyFeedback())]);
       setBaskets(Array.isArray(bs) ? bs : []);
@@ -169,7 +170,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [runSyncFor]);
 
   const cur = useCuration();
-  const catalog = useMemo(() => (rawCatalog ? curateCatalog(rawCatalog, cur) : null), [rawCatalog, cur]);
+  const enr = useEnrich();
+  const recs = enr.settings.apply ? enr.recs : null;
+  const catalog = useMemo(() => (rawCatalog ? curateCatalog(rawCatalog, cur, recs) : null), [rawCatalog, cur, recs]);
   // products merged by AI curation: carts, past baskets and the regulars move to the product they joined
   const alias = useMemo(() => (rawCatalog ? aliases(rawCatalog, cur) : new Map<string, string>()), [rawCatalog, cur]);
   useEffect(() => {

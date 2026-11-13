@@ -4,6 +4,7 @@ import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AiProvider } from "../lib/ai";
 import { CurationProvider } from "../lib/curation";
+import { EnrichProvider } from "../lib/enrichRun";
 import { Onboarding } from "../components/Onboarding";
 import { useTheme } from "../components/ui";
 import { SettingsProvider } from "../lib/settings";
@@ -18,6 +19,7 @@ export default function RootLayout() {
       <DataProvider>
       <AiProvider>
       <CurationProvider>
+      <EnrichProvider>
        <WatchProvider>
         {/* direction: rtl lays the whole app out right-to-left on iOS, Android and web, with no restart. */}
         <View style={{ flex: 1, direction: "rtl", backgroundColor: t.bg }}>
@@ -39,10 +41,12 @@ export default function RootLayout() {
             <Stack.Screen name="shop" options={{ presentation: "modal" }} />
             <Stack.Screen name="debug" options={{ presentation: "modal" }} />
             <Stack.Screen name="catalog" options={{ presentation: "modal" }} />
+            <Stack.Screen name="analysis" options={{ presentation: "modal" }} />
           </Stack>
           <Onboarding />
         </View>
        </WatchProvider>
+      </EnrichProvider>
       </CurationProvider>
       </AiProvider>
       </DataProvider>

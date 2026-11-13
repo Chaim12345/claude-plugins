@@ -13,6 +13,7 @@
 // asked about once, and a new sync only asks about new products.
 import { chainKey, norm } from "./compare.ts";
 import type { ChatMessage } from "./llm.ts";
+import type { Enriched } from "./enrich.ts";
 import type { Catalog, Category, ProductMeta, RawProduct } from "./types.ts";
 import { sizeOf } from "./units.ts";
 
@@ -76,13 +77,14 @@ function mergeMeta(a: ProductMeta | null | undefined, b: ProductMeta | null | un
  * categories replaced. The original name, and the barcodes merged in, go into the row's metadata.
  * Returns the same catalog when there is nothing to apply.
  */
-export function curateCatalog(c: Catalog, cur: Curation): Catalog {
+export function curateCatalog(c: Catalog, cur: Curation, enr?: Map<string, Enriched> | null): Catalog {
   const links = activeLinks(c, cur);
   const names = cur.on.names ? cur.names : {};
   const cats = cur.on.cats ? cur.cats : {};
   const valid = new Set(c.categories.map(x => x.id));
   const touched = (code: string) => (names[code] && !cur.rejected[`names:${code}`]) || (cats[code] && !cur.rejected[`cats:${code}`] && valid.has(cats[code]));
-  if (!links.size && !c.products.some(r => touched(r[0]))) return c;
+  const recs = enr && enr.size ? enr : null;
+  if (!links.size && !recs && !c.products.some(r => touched(r[0]))) return c;
 
   const merged = new Map<string, Row[]>(); // primary -> secondaries
   for (const [s, p] of links) merged.set(p, [...(merged.get(p) ?? []), c.products.find(r => r[0] === s)!]);
@@ -103,6 +105,9 @@ export function curateCatalog(c: Catalog, cur: Curation): Catalog {
     }
     const nn = names[code] && !cur.rejected[`names:${code}`] ? names[code] : null;
     if (nn && nn !== name) { meta = { ...(meta ?? {}), raw: name }; name = nn; }
+    // the model's product record: its category, unless the user's category task says otherwise
+    const rec = recs?.get(code);
+    if (rec) { meta = { ...(meta ?? {}), ai: rec }; if (valid.has(rec.c)) cat = rec.c; }
     const nc = cats[code] && !cur.rejected[`cats:${code}`] && valid.has(cats[code]) ? cats[code] : null;
     if (nc) cat = nc;
     products.push([code, name, cat, w, prices, picks, img, meta ?? null]);
@@ -163,23 +168,29 @@ export function linkCandidates(c: Catalog, cur: Curation, limit = 600): LinkItem
   const out: LinkItem[] = [];
   for (const l of buckets.values()) {
     if (l.length < 2) continue;
-    for (let i = 0; i < l.length; i++) for (let j = i + 1; j < l.length; j++) {
-      const x = l[i], y = l[j];
-      if (!disjoint(x.r[4], y.r[4])) continue;
-      if (x.r[2] !== y.r[2] && x.r[2] !== "other" && y.r[2] !== "other") continue;
-      if (cur.asked[`links:${pairKey(x.r[0], y.r[0])}`]) continue;
-      // every number in either name appears in the other (variants: 3% vs 5%, No. 4 vs 5)
-      if ([...x.n].some(v => !y.n.has(v)) || [...y.n].some(v => !x.n.has(v))) continue;
-      let inter = 0;
-      for (const h of x.h) if (y.h.has(h)) inter++;
-      const uni = x.h.size + y.h.size - inter;
-      const mx = x.r[7]?.maker, my = y.r[7]?.maker;
-      if (mx && my && norm(mx) !== norm(my)) continue;
-      const score = uni ? inter / uni : 0;
-      if (score < 0.5 || inter < 2) continue;
-      // the product in more chains stays (its barcode is the national one)
-      const [p, s] = x.chains.size >= y.chains.size ? [x, y] : [y, x];
-      out.push({ a: s.r[0], b: p.r[0], an: s.r[1], bn: p.r[1], am: s.r[7]?.maker, bm: p.r[7]?.maker, score });
+    // only pairs that share at least two name words: an index from word to products
+    const byHead = new Map<string, number[]>();
+    l.forEach((x, i) => { for (const h of x.h) (byHead.get(h) ?? byHead.set(h, []).get(h)!).push(i); });
+    for (let i = 0; i < l.length; i++) {
+      const shared = new Map<number, number>();
+      for (const h of l[i].h) for (const j of byHead.get(h)!) if (j > i) shared.set(j, (shared.get(j) ?? 0) + 1);
+      for (const [j, inter] of shared) {
+        if (inter < 2) continue;
+        const x = l[i], y = l[j];
+        const uni = x.h.size + y.h.size - inter;
+        const score = uni ? inter / uni : 0;
+        if (score < 0.5) continue;
+        if (!disjoint(x.r[4], y.r[4])) continue;
+        if (x.r[2] !== y.r[2] && x.r[2] !== "other" && y.r[2] !== "other") continue;
+        if (cur.asked[`links:${pairKey(x.r[0], y.r[0])}`]) continue;
+        // every number in either name appears in the other (variants: 3% vs 5%, No. 4 vs 5)
+        if ([...x.n].some(v => !y.n.has(v)) || [...y.n].some(v => !x.n.has(v))) continue;
+        const mx = x.r[7]?.maker, my = y.r[7]?.maker;
+        if (mx && my && norm(mx) !== norm(my)) continue;
+        // the product in more chains stays (its barcode is the national one)
+        const [p, sx] = x.chains.size >= y.chains.size ? [x, y] : [y, x];
+        out.push({ a: sx.r[0], b: p.r[0], an: sx.r[1], bn: p.r[1], am: sx.r[7]?.maker, bm: p.r[7]?.maker, score });
+      }
     }
   }
   out.sort((a, b) => b.score - a.score);

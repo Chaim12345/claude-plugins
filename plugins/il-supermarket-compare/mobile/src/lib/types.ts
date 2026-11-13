@@ -1,3 +1,4 @@
+import type { Enriched } from "./enrich.ts";
 // The catalog written by the Go core (core/catalog.go). Same JSON the web app reads.
 
 export type Store = {
@@ -35,6 +36,7 @@ export type ProductMeta = {
   size?: [number, "g" | "ml" | "u", number]; maker?: string; il?: boolean; stale?: [number, number][]; chg?: [number, number][];
   raw?: string; // set on the phone by AI curation (curate.ts): the name the price files gave, when it was tidied
   linked?: string[]; // set on the phone by AI curation: other barcodes of the same product, merged into this one
+  ai?: Enriched; // set on the phone: the model's record of the product (enrich.ts)
 };
 
 // [code, name, category, weighted (1 = per kg), prices in agorot per store, matched names, image code, metadata]

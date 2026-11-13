@@ -104,7 +104,7 @@ func TestNearby(t *testing.T) {
 func TestConfigFor(t *testing.T) {
 	near := []NearStore{{DirStore: DirStore{Chain: "shufersal", StoreID: "70", Banner: "שופרסל שלי", Name: "שלי רמת גן- מרום נווה", Address: "תרצה 19", City: "רמת גן", Lat: 32.07, Lon: 34.83}, Km: 1.2}}
 	c := ConfigFor(near, "הרצל 50", 32.08, 34.81)
-	if c.Stores[0].Branch != "רמת גן- מרום נווה" || c.Stores[0].ChainName != "שופרסל שלי" || c.Areas[0].Name != "הרצל 50" || c.MinStores != 2 {
+	if c.Stores[0].Branch != "רמת גן- מרום נווה" || c.Stores[0].ChainName != "שופרסל שלי" || c.Areas[0].Name != "הרצל 50" || c.MinStores != 1 {
 		t.Errorf("config = %+v", c)
 	}
 }

@@ -61,7 +61,8 @@
       ],
       "expo-background-task",
       "./plugins/withKeepRules",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-sqlite"
     ],
     "scheme": "salzol",
     "experiments": {

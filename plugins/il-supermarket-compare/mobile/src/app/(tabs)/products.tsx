@@ -7,6 +7,8 @@ import { AddBtn, Button, DealBadge, IconBtn, Num, PriceTag, ProductImage, Steppe
 import { bestDeal, dealText, money, search, storeKm, type BestDeal, type PriceInfo, type Sort } from "../../lib/compare";
 import { FollowButton } from "../../components/WatchBits";
 import { sizeOf, sortByUnitPrice, unitPrice, unitText } from "../../lib/units";
+import { dietCounts } from "../../lib/analysis";
+import { DIET_LABEL, type Diet } from "../../lib/enrich";
 import { useData } from "../../lib/store";
 import type { Catalog, Product } from "../../lib/types";
 
@@ -35,6 +37,9 @@ export default function Products() {
   const [onSale, setOnSale] = useState(false);
   const [onlyIL, setOnlyIL] = useState(false);
   const [kosher, setKosher] = useState(false);
+  const [diet, setDiet] = useState<Diet | null>(null);
+  // diet filters from the AI product records, the ones the catalog actually has
+  const diets = useMemo(() => dietCounts(products.values()).filter(d => !["kosher", "mehadrin", "badatz", "dairy", "meat", "parve"].includes(d.tag) && d.n >= 5).slice(0, 7), [products]);
   const [showStores, setShowStores] = useState(false);
   const listRef = useRef<FlatList<[Product, PriceInfo]>>(null);
   const inputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
@@ -46,13 +51,14 @@ export default function Products() {
   }, [params.cat, params.focus, params.t]);
   const dq = useDeferredValue(q);
   const list = useMemo(() => {
-    const keep = onSale || onlyIL || kosher
-      ? (p: Product) => (!onlyIL || !!p.meta?.il) && (!kosher || KOSHER.test(p.name)) && (!onSale || !!bestDeal(p, active, deals))
+    const keep = onSale || onlyIL || kosher || diet
+      ? (p: Product) => (!onlyIL || !!p.meta?.il) && (!kosher || KOSHER.test(p.name) || !!p.meta?.ai?.d.some(x => x === "mehadrin" || x === "badatz"))
+        && (!diet || !!p.meta?.ai?.d.includes(diet)) && (!onSale || !!bestDeal(p, active, deals))
       : undefined;
     const rows = search(products.values(), active, dq, cat, sort === "unit" ? "pop" : sort, keep);
     // cheapest per 100 g / litre / piece: grouped by kind, products with no known size last
     return sort === "unit" ? sortByUnitPrice(rows, ([p, pi]) => unitPrice(sizeOf(p), pi.lo!)) : rows;
-  }, [products, active, dq, cat, sort, onSale, onlyIL, kosher, deals]);
+  }, [products, active, dq, cat, sort, onSale, onlyIL, kosher, diet, deals]);
 
   // The compact list is the default: comparing prices means scanning many items, and a list shows
   // about five times as many per screen as the grid. The choice is remembered.
@@ -119,6 +125,7 @@ export default function Products() {
               <Filter on={onSale} label="במבצע" icon="pricetag-outline" onPress={() => setOnSale(v => !v)} />
               <Filter on={onlyIL} label="תוצרת הארץ" icon="flag-outline" onPress={() => setOnlyIL(v => !v)} />
               <Filter on={kosher} label="מהדרין/בד״ץ (לפי השם)" icon="star-outline" onPress={() => setKosher(v => !v)} />
+              {diets.map(d => <Filter key={d.tag} on={diet === d.tag} label={DIET_LABEL[d.tag]} icon="leaf-outline" onPress={() => setDiet(v => (v === d.tag ? null : d.tag))} />)}
               <View style={{ width: 1, height: 22, backgroundColor: t.line, marginHorizontal: 2 }} />
               <Text style={{ color: t.ink2, fontSize: 13 }}>מיון:</Text>
               {SORTS.map(s => (

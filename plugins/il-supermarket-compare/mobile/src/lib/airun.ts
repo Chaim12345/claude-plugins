@@ -37,7 +37,7 @@ export async function runBatches(cfg: LlmConfig, n: number, ask: (i: number) => 
       } catch (e) {
         if (o.signal.aborted) return undefined;
         const err = e as LlmError;
-        if ((err.kind === "quota" || err.kind === "network") && tries < 2 && err.retryAfterMs) {
+        if ((err.kind === "quota" || err.kind === "network") && tries < 3 && err.retryAfterMs) {
           dlog(tag, `retry in ${Math.round(err.retryAfterMs / 1000)} s`, err.message);
           await wait(Math.min(err.retryAfterMs, 65_000), o.signal);
           continue;

@@ -1,4 +1,5 @@
 // Pure logic shared by every screen: no React, no native code, so it runs under `node --test`.
+import { searchTerms } from "./enrich.ts";
 import type { Cart, Catalog, Product, Promo, PromoNote } from "./types";
 
 export function norm(s: string): string {
@@ -11,6 +12,7 @@ export function toProducts(c: Catalog): Map<string, Product> {
     // the manufacturer is searchable: "אסם" finds Osem's products whose names don't say so
     let key = meta?.maker && !norm(name).includes(norm(meta.maker)) ? `${norm(name)} ${norm(meta.maker)}` : norm(name);
     if (meta?.raw) key += ` ${norm(meta.raw)}`; // a tidied name: the original stays searchable
+    if (meta?.ai) key += ` ${searchTerms(meta.ai)}`; // the model's type, brand, line and diet tags
     m.set(code, { code, name, cat, weighted: w === 1, prices, picks, img: img ?? null, key, meta: meta ?? null });
   }
   return m;

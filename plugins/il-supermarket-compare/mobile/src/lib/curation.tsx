@@ -20,6 +20,7 @@ export type TaskStatus = { running: boolean; done: number; total: number; error?
 const idle: TaskStatus = { running: false, done: 0, total: 0 };
 
 type Ctx = {
+  watch: (on: boolean) => void; // the catalog screen is open: keep the candidate lists
   status: Record<TaskKind, TaskStatus>;
   pending: Record<TaskKind, number>;
   run: (k: TaskKind) => void;
@@ -34,12 +35,14 @@ export function CurationProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Record<TaskKind, TaskStatus>>({ cats: idle, names: idle, links: idle });
   const ctls = useRef<Partial<Record<TaskKind, AbortController>>>({});
 
-  // candidates come from the catalog as the files gave it, so answers are keyed to the original rows
-  const cands = useMemo(() => (rawCatalog ? {
+  // candidates come from the catalog as the files gave it, so answers are keyed to the original rows;
+  // built only while the catalog screen is open (finding look-alike pairs in 36,000 products takes a moment)
+  const [watching, setWatching] = useState(0);
+  const cands = useMemo(() => (rawCatalog && watching ? {
     cats: catCandidates(rawCatalog, cur),
     names: nameCandidates(rawCatalog, cur),
     links: linkCandidates(rawCatalog, cur),
-  } : { cats: [], names: [], links: [] }), [rawCatalog, cur]);
+  } : { cats: [], names: [], links: [] }), [rawCatalog, cur, watching]);
   const pending = useMemo(() => ({ cats: cands.cats.length, names: cands.names.length, links: cands.links.length }), [cands]);
 
   const set = (k: TaskKind, s: Partial<TaskStatus>) => setStatus(p => ({ ...p, [k]: { ...p[k], ...s } }));
@@ -81,7 +84,8 @@ export function CurationProvider({ children }: { children: ReactNode }) {
 
   const cancel = useCallback((k: TaskKind) => { ctls.current[k]?.abort(); }, []);
 
-  const value = useMemo(() => ({ status, pending, run, cancel }), [status, pending, run, cancel]);
+  const watch = useCallback((on: boolean) => setWatching(n => Math.max(0, n + (on ? 1 : -1))), []);
+  const value = useMemo(() => ({ watch, status, pending, run, cancel }), [watch, status, pending, run, cancel]);
   return <CurCtx.Provider value={value}>{children}</CurCtx.Provider>;
 }
 
