@@ -103,6 +103,7 @@ func Open(d string) error {
 }
 
 func SetListener(l Listener) {
+	defer guard(nil)
 	eng().SetEmitter(func(ev app.Event) {
 		if l != nil {
 			l.OnEvent(js(ev))
@@ -136,20 +137,24 @@ func Deals(reqJSON string) (out string) {
 }
 
 // Actions
+// Every exported call is guarded: a Go panic reaches the app as an error (and a line in
+// go-errors.txt), never as a dead process.
 func SetPlace(name string, lat, lon, radiusKm float64) {
+	defer guard(nil)
 	eng().SetPlace(app.Place{Name: name, Lat: lat, Lon: lon, Radius: radiusKm})
 }
-func Sync()                             { eng().Sync() }
-func CancelSync()                       { eng().CancelSync() }
-func SetQty(code string, q float64) int { return eng().SetQty(code, q) }
-func ClearCart()                        { eng().ClearCart() }
-func ToggleStore(id string)             { eng().ToggleStore(id) }
-func SetClub(chain string, on bool)     { eng().SetClub(chain, on) }
-func ToggleWatch(code string) bool      { return eng().ToggleWatch(code) }
-func SetImages(on bool)                 { eng().SetImages(on) }
+func Sync()                                 { defer guard(nil); eng().Sync() }
+func CancelSync()                           { defer guard(nil); eng().CancelSync() }
+func SetQty(code string, q float64) (n int) { defer guard(nil); return eng().SetQty(code, q) }
+func ClearCart()                            { defer guard(nil); eng().ClearCart() }
+func ToggleStore(id string)                 { defer guard(nil); eng().ToggleStore(id) }
+func SetClub(chain string, on bool)         { defer guard(nil); eng().SetClub(chain, on) }
+func ToggleWatch(code string) (on bool)     { defer guard(nil); return eng().ToggleWatch(code) }
+func SetImages(on bool)                     { defer guard(nil); eng().SetImages(on) }
 
 // Geocode: {"found":bool,"lat":..,"lon":..,"error":".."}.
-func Geocode(q string) string {
+func Geocode(q string) (out string) {
+	defer guard(&out)
 	lat, lon, ok, err := eng().Geocode(q)
 	m := map[string]any{"found": ok, "lat": lat, "lon": lon}
 	if err != nil {
@@ -160,6 +165,7 @@ func Geocode(q string) string {
 
 // AI
 func SetAI(configJSON string) {
+	defer guard(nil)
 	var c ai.Config
 	if json.Unmarshal([]byte(configJSON), &c) == nil {
 		eng().SetAI(c)
@@ -167,10 +173,11 @@ func SetAI(configJSON string) {
 }
 
 // TestAI: "" when it works, else the error in Hebrew. Blocks: call it off the main thread.
-func TestAI() string { return eng().TestAI() }
+func TestAI() (out string) { defer guard(&out); return eng().TestAI() }
 
 // Models: JSON list of model ids. Blocks.
-func Models() string {
+func Models() (out string) {
+	defer guard(&out)
 	m, err := eng().Models()
 	if err != nil {
 		return js(map[string]any{"error": err.Error()})
@@ -191,15 +198,15 @@ func ReviewName(code, decision string) {
 func ApproveAllLinks() { go func() { defer guard(nil); eng().ApproveAllLinks() }() }
 func ClearCuration()   { go func() { defer guard(nil); eng().ClearCuration() }() }
 
-func StartAI()   { eng().StartAI() }
+func StartAI()   { defer guard(nil); eng().StartAI() }
 func RunEnrich() { go func() { defer guard(nil); eng().RunEnrich() }() }
 func RunCheck()  { go func() { defer guard(nil); eng().RunCheck() }() }
-func StopAI()    { eng().StopAI() }
-func ClearAI()   { eng().ClearAI() }
+func StopAI()    { defer guard(nil); eng().StopAI() }
+func ClearAI()   { defer guard(nil); eng().ClearAI() }
 
 // RefreshNow is the background job: sync the saved place, wait for it, then the AI work. Blocks
 // up to the timeout; returns "" or an error. Called by WorkManager.
-func RefreshNow(timeoutSec int) string { return eng().RefreshNow(timeoutSec) }
+func RefreshNow(timeoutSec int) (out string) { defer guard(&out); return eng().RefreshNow(timeoutSec) }
 
 // ---- features
 
@@ -212,17 +219,18 @@ func CartText() (out string) { defer guard(&out); return eng().CartText() }
 
 // Shop is the in-store checklist for a branch ("" = the cheapest for the cart).
 func Shop(storeID string) (out string) { defer guard(&out); return js(eng().Shop(storeID)) }
-func SetChecked(code string, on bool)  { eng().SetChecked(code, on) }
+func SetChecked(code string, on bool)  { defer guard(nil); eng().SetChecked(code, on) }
 
-func SaveList(name string)           { eng().SaveList(name) }
-func LoadList(id string, merge bool) { eng().LoadList(id, merge) }
-func DeleteList(id string)           { eng().DeleteList(id) }
+func SaveList(name string)           { defer guard(nil); eng().SaveList(name) }
+func LoadList(id string, merge bool) { defer guard(nil); eng().LoadList(id, merge) }
+func DeleteList(id string)           { defer guard(nil); eng().DeleteList(id) }
 
 // ParseList matches a pasted shopping list to products: JSON [{line,qty,code,name,price,alts}].
 func ParseList(text string) (out string) { defer guard(&out); return js(eng().ParseList(text)) }
 
 // AddMany adds {"code":qty,...} to the cart.
 func AddMany(itemsJSON string) {
+	defer guard(nil)
 	var m map[string]float64
 	if json.Unmarshal([]byte(itemsJSON), &m) == nil {
 		eng().AddMany(m)
@@ -230,7 +238,7 @@ func AddMany(itemsJSON string) {
 }
 
 // Lookup: the product code for a scanned barcode, or "".
-func Lookup(barcode string) string { return eng().Lookup(barcode) }
+func Lookup(barcode string) (code string) { defer guard(nil); return eng().Lookup(barcode) }
 
 // TakeNotices: watched products that got cheaper, not shown yet (JSON list); the background job posts them.
 func TakeNotices() (out string) { defer guard(&out); return js(eng().TakeNotices()) }

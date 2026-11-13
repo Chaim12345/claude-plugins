@@ -35,6 +35,15 @@ func (e *Engine) remapAliases(alias map[string]string) {
 			}
 		}
 	}
+	for i := range e.st.Lists {
+		for s, p := range alias {
+			if q, ok := e.st.Lists[i].Items[s]; ok {
+				e.st.Lists[i].Items[p] += q
+				delete(e.st.Lists[i].Items, s)
+				changed = true
+			}
+		}
+	}
 	// a watch list that now holds the same product twice
 	seen := map[string]bool{}
 	out := e.st.Watch[:0]

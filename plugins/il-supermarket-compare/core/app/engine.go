@@ -93,7 +93,8 @@ type Engine struct {
 	aiRun    *aiStatus
 	aiStop   context.CancelFunc
 	building bool
-	loaded   chan struct{} // closed once the saved catalog has been read at start-up
+	aiwg     sync.WaitGroup // the AI delta that follows a sync
+	loaded   chan struct{}  // closed once the saved catalog has been read at start-up
 	log      ring
 
 	emit func(Event)
@@ -199,7 +200,8 @@ func (e *Engine) loadCatalog(afterSync bool) {
 	e.mu.Unlock()
 	e.send(Event{Type: "catalog"})
 	if afterSync {
-		go func() { defer safe("ai"); e.autoAI() }()
+		e.aiwg.Add(1)
+		go func() { defer e.aiwg.Done(); defer safe("ai"); e.autoAI() }()
 	}
 }
 
@@ -272,17 +274,23 @@ func (e *Engine) Sync() {
 		defer safe("sync")
 		defer cancel()
 		err := e.syncNow(ctx, p)
+		if err == nil {
+			// the new catalog is read and compared with the old one (price moves, notices) before
+			// the sync counts as finished: RefreshNow must not load it a second time in parallel,
+			// which would make the comparison see two equal catalogs and lose the notices
+			e.loadCatalog(true)
+		}
 		e.mu.Lock()
 		e.syncing, e.syncStop = false, nil
 		if err != nil {
 			e.syncErr = err.Error()
 		}
+		msg := e.syncErr
 		e.mu.Unlock()
 		if err != nil {
-			e.send(Event{Type: "sync", Msg: e.syncErr})
+			e.send(Event{Type: "sync", Msg: msg})
 			return
 		}
-		e.loadCatalog(true)
 		e.send(Event{Type: "sync"})
 	}()
 }
@@ -428,11 +436,19 @@ func (e *Engine) RefreshNow(timeoutSec int) string {
 		busy, err := e.syncing, e.syncErr
 		e.mu.RUnlock()
 		if !busy {
-			if err == "" {
-				e.loadCatalog(false)
-				e.autoAI()
+			if err != "" {
+				return err
 			}
-			return err
+			// the sync already loaded the catalog and started the AI delta: wait for it
+			done := make(chan struct{})
+			go func() { e.aiwg.Wait(); close(done) }()
+			select {
+			case <-done:
+				return ""
+			case <-time.After(time.Until(deadline)):
+				e.StopAI()
+				return "timeout"
+			}
 		}
 		time.Sleep(time.Second)
 	}

@@ -5,5 +5,5 @@ here="$(cd "$(dirname "$0")" && pwd)"
 export PATH="$PATH:$(go env GOPATH)/bin"
 mkdir -p "$here/app/libs"
 cd "$here/../core"
-gomobile bind -trimpath -ldflags="-s -w" -target="${TARGETS:-android/arm64,android/amd64}" -androidapi 26 -javapkg il.salzol.core -o "$here/app/libs/salzol.aar" ./droid
+gomobile bind -trimpath -ldflags="-s -w -extldflags=-Wl,-z,max-page-size=16384" -target="${TARGETS:-android/arm64,android/amd64}" -androidapi 26 -javapkg il.salzol.core -o "$here/app/libs/salzol.aar" ./droid
 echo "built $here/app/libs/salzol.aar"

@@ -181,3 +181,42 @@ func enrichAndCheck(t *testing.T, noTools bool) {
 		t.Errorf("applied %v", got)
 	}
 }
+
+// A batch the provider keeps failing on is skipped, not the end of the run; a key problem still stops it.
+func TestRunSkipsPoisonBatch(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		b, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(string(b), "POISON") {
+			w.WriteHeader(400)
+			w.Write([]byte(`{"error":{"message":"bad request"}}`))
+			return
+		}
+		if strings.Contains(string(b), "BADKEY") {
+			w.WriteHeader(401)
+			w.Write([]byte(`{"error":{"message":"nope"}}`))
+			return
+		}
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"1","type":"function","function":{"name":"report_status","arguments":"{\"ok\":true}"}}]}}]}`))
+	}))
+	defer srv.Close()
+	c := Config{On: true, Key: "k", BaseURL: srv.URL, Model: "m", Preset: "custom"}
+	answered := 0
+	prompts := []string{"fine", "POISON", "fine2"}
+	stop := Run(context.Background(), &Client{HTTP: srv.Client()}, c, 3, StatusTool,
+		func(i int) []Message { return []Message{{"user", prompts[i]}} },
+		func(i int, _ json.RawMessage) { answered++ }, nil, time.Minute, func(context.Context, time.Duration) {})
+	if stop != "" || answered != 2 {
+		t.Errorf("poison batch: stop %q, answered %d (want 2)", stop, answered)
+	}
+	answered = 0
+	prompts = []string{"BADKEY", "fine", "fine2"}
+	stop = Run(context.Background(), &Client{HTTP: srv.Client()}, c, 3, StatusTool,
+		func(i int) []Message { return []Message{{"user", prompts[i]}} },
+		func(i int, _ json.RawMessage) { answered++ }, nil, time.Minute, func(context.Context, time.Duration) {})
+	if stop == "" || answered != 0 {
+		t.Errorf("auth error must stop the run: stop %q, answered %d", stop, answered)
+	}
+}

@@ -108,10 +108,21 @@ func (s *Store) Compact() error {
 		w.Write(b)
 		w.WriteByte('\n')
 	}
-	w.Flush()
-	f.Close()
+	// a failed write (disk full) must not replace the good file with a cut-off copy
+	if err := w.Flush(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		return err
+	}
 	s.n = len(s.rows)
-	return os.Rename(tmp, s.path)
+	return nil
 }
 
 func (s *Store) Clear() error {

@@ -318,8 +318,8 @@ func errorOf(status int, body []byte, retryAfter string) *Error {
 	} else {
 		detail = string(body)
 	}
-	if len(detail) > 160 {
-		detail = detail[:160]
+	if r := []rune(detail); len(r) > 160 {
+		detail = string(r[:160]) // by characters: cutting Hebrew mid-byte leaves broken text
 	}
 	detail = keyRx.ReplaceAllString(detail, "$1=…")
 	suffix := ""
@@ -376,6 +376,7 @@ func Run(ctx context.Context, cl *Client, c Config, n int, tool Tool, ask func(i
 		}
 	}
 	gap := time.Minute / time.Duration(max(c.preset().RPM, 1))
+	skipped, lastErr := 0, ""
 	for i := 0; i < n && ctx.Err() == nil; i++ {
 		if i > 0 {
 			wait(ctx, gap)
@@ -384,17 +385,30 @@ func Run(ctx context.Context, cl *Client, c Config, n int, tool Tool, ask func(i
 			args, err := cl.CallTool(ctx, c, ask(i), tool, timeout)
 			if err == nil {
 				onAnswer(i, args)
+				skipped = 0
 				break
 			}
 			if ctx.Err() != nil {
 				return ""
 			}
 			var e *Error
-			if errors.As(err, &e) && (e.Kind == "quota" || e.Kind == "network") && tries < 3 && e.RetryAfter > 0 {
+			retryable := errors.As(err, &e) && (e.Kind == "quota" || e.Kind == "network") && e.RetryAfter > 0
+			if retryable && tries < 3 {
 				wait(ctx, min(e.RetryAfter, 65*time.Second))
 				continue
 			}
-			return err.Error()
+			// A key or model problem, or the daily quota, would fail every batch: stop. A batch the
+			// provider keeps failing on is skipped: the batches are always in the same order, so
+			// stopping there would block everything after it on every later run too.
+			if e == nil || !(e.Kind == "bad" || e.Kind == "network") {
+				return err.Error()
+			}
+			lastErr = err.Error()
+			skipped++
+			if skipped >= 3 {
+				return lastErr
+			}
+			break
 		}
 		if onProgress != nil {
 			onProgress(i + 1)
