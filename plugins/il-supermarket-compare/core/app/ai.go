@@ -73,7 +73,7 @@ func (e *Engine) autoAI() {
 }
 
 // StartAI is called when the app opens: background AI if it is set up.
-func (e *Engine) StartAI() { go e.autoAI() }
+func (e *Engine) StartAI() { go func() { defer safe("ai"); e.autoAI() }() }
 
 func (e *Engine) startRun(kind string) (context.Context, bool) {
 	e.mu.Lock()
@@ -229,5 +229,5 @@ func (e *Engine) ClearAI() {
 	e.mu.Lock()
 	e.deals = nil
 	e.mu.Unlock()
-	go e.loadCatalog(false)
+	go func() { defer safe("load catalog"); e.loadCatalog(false) }()
 }

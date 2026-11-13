@@ -65,6 +65,11 @@ fun AppRoot() {
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route ?: "home"
     val st = status
+    // the first screen is decided once, when the status first arrives (a NavHost must not change it later)
+    var start by remember { mutableStateOf<String?>(null) }
+    if (start == null && st != null) start = if (st.place == null) "location" else "home"
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var crash by remember { mutableStateOf(takeCrashReport(ctx)) }
     LaunchedEffect(st != null) { startTab?.let { t -> if (st?.place != null) { nav.navigate(t); startTab = null } } }
 
     Scaffold(
@@ -87,10 +92,9 @@ fun AppRoot() {
         },
     ) { pad ->
         Box(Modifier.fillMaxSize().background(P.bg).padding(pad)) {
-            // no place yet: choose one first
-            val start = if (st != null && st.place == null) "location" else "home"
-            if (st == null) Loading("טוען…")
-            else NavHost(nav, startDestination = start) {
+            if (crash.isNotEmpty()) CrashScreen(crash) { crash = "" }
+            else if (st == null || start == null) Loading("טוען…")
+            else NavHost(nav, startDestination = start!!) {
                 composable("home") { HomeScreen(nav) }
                 composable("products?cat={cat}", arguments = listOf(navArgument("cat") { type = NavType.StringType; defaultValue = "" })) { ProductsScreen(nav, it.arguments?.getString("cat") ?: "") }
                 composable("products") { ProductsScreen(nav, "") }
@@ -127,5 +131,29 @@ fun PlaceBar(nav: NavHostController, st: StatusView?) {
             leadingIcon = { Icon(Icons.Outlined.Place, null, Modifier.size(18.dp)) })
         val scope = rememberCoroutineScope()
         IconButton(onClick = { scope.launch { Go.sync(); Bus.poke() } }) { Icon(Icons.Outlined.Refresh, "עדכון מחירים", tint = P.ink) }
+    }
+}
+
+/** Shown once after a crash: what happened, to share with the developer. */
+@Composable
+fun CrashScreen(report: String, onContinue: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Title("האפליקציה נסגרה בפעם הקודמת")
+        Hint("אפשר לשלוח את הפרטים האלה כדי שנתקן. אין בהם מידע אישי.")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, report)
+                ctx.startActivity(android.content.Intent.createChooser(i, "שליחת הדוח"))
+            }) { Text("שיתוף הדוח") }
+            OutlinedButton(onClick = onContinue) { Text("המשך") }
+        }
+        androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().background(P.surface, Round).padding(8.dp)) {
+            item {
+                androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
+                    Text(report, fontSize = 11.sp, color = P.ink, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                }
+            }
+        }
     }
 }

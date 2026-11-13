@@ -179,7 +179,7 @@ fun StoresScreen(nav: NavHostController) {
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize()) {
         Header(nav, "סניפים וכרטיסי מועדון")
-        if (st == null) { Loading("טוען…"); return }
+        if (st == null) { Loading("טוען…") } else {
         LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val clubChains = st.stores.filter { it.club }.distinctBy { it.key }
             if (clubChains.isNotEmpty()) item {
@@ -202,6 +202,7 @@ fun StoresScreen(nav: NavHostController) {
         }
     }
 }
+}
 
 // ---------------------------------------------------------------- AI
 
@@ -223,7 +224,7 @@ fun AIScreen(nav: NavHostController) {
     }
     Column(Modifier.fillMaxSize()) {
         Header(nav, "בינה מלאכותית")
-        if (v == null || c == null) { Loading("טוען…"); return }
+        if (v == null || c == null) { Loading("טוען…") } else {
         LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Panel {
@@ -297,4 +298,5 @@ fun AIScreen(nav: NavHostController) {
             }
         }
     }
+}
 }

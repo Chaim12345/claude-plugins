@@ -5,7 +5,12 @@ package droid
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime/debug"
 	"sync"
+	"time"
 
 	"github.com/Chaim12345/claude-plugins/plugins/il-supermarket-compare/core/ai"
 	"github.com/Chaim12345/claude-plugins/plugins/il-supermarket-compare/core/app"
@@ -17,14 +22,52 @@ type Listener interface {
 }
 
 var (
-	mu sync.Mutex
-	e  *app.Engine
+	mu  sync.Mutex
+	e   *app.Engine
+	dir string
 )
 
 func eng() *app.Engine {
 	mu.Lock()
 	defer mu.Unlock()
 	return e
+}
+
+// guard turns a Go panic in a call from the UI into an error the screen can show (and a line in
+// go-errors.txt) instead of killing the app.
+func guard(out *string) {
+	if r := recover(); r != nil {
+		msg := fmt.Sprintf("%v", r)
+		logErr(msg + "\n" + string(debug.Stack()))
+		if out != nil {
+			*out = `{"error":` + quote(msg) + `}`
+		}
+	}
+}
+
+func logErr(s string) {
+	if dir == "" {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "go-errors.txt"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err == nil {
+		fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), s)
+		f.Close()
+	}
+}
+
+// Errors returns what went wrong in Go since the last call (panics caught, and a fatal crash of the
+// previous run), and clears it.
+func Errors() string {
+	var out string
+	for _, n := range []string{"go-crash.txt", "go-errors.txt"} {
+		p := filepath.Join(dir, n)
+		if b, err := os.ReadFile(p); err == nil && len(b) > 0 {
+			out += "== " + n + "\n" + string(b) + "\n"
+			os.Remove(p)
+		}
+	}
+	return out
 }
 
 func js(v any) string {
@@ -38,13 +81,20 @@ func js(v any) string {
 func quote(s string) string { b, _ := json.Marshal(s); return string(b) }
 
 // Open starts the engine on the app's private files folder. Safe to call again (keeps the first).
-func Open(dir string) error {
+// A fatal Go error (one recover can't catch) is written to go-crash.txt for the next start to show.
+func Open(d string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if e != nil {
 		return nil
 	}
-	x, err := app.Open(dir)
+	dir = d
+	if f, err := os.OpenFile(filepath.Join(d, "go-crash.txt"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+		debug.SetCrashOutput(f, debug.CrashOptions{})
+		f.Close()
+	}
+	app.OnPanic = logErr
+	x, err := app.Open(d)
 	if err != nil {
 		return err
 	}
@@ -61,22 +111,25 @@ func SetListener(l Listener) {
 }
 
 // Screens
-func Status() string             { return js(eng().Status()) }
-func Home() string               { return js(eng().Home()) }
-func Product(code string) string { return js(eng().Product(code)) }
-func Cart() string               { return js(eng().Cart()) }
-func AI() string                 { return js(eng().AI()) }
-func AIConfig() string           { return js(eng().AIConfig()) }
+func Status() (out string)             { defer guard(&out); return js(eng().Status()) }
+func Home() (out string)               { defer guard(&out); return js(eng().Home()) }
+func Product(code string) (out string) { defer guard(&out); return js(eng().Product(code)) }
+func Cart() (out string)               { defer guard(&out); return js(eng().Cart()) }
+func AI() (out string)                 { defer guard(&out); return js(eng().AI()) }
+
+func AIConfig() (out string) { defer guard(&out); return js(eng().AIConfig()) }
 
 // Search takes a SearchReq as JSON: {"q":"...","cat":"dairy","sort":"cheap","onSale":true,"offset":0,"limit":40}.
-func Search(reqJSON string) string {
+func Search(reqJSON string) (out string) {
+	defer guard(&out)
 	var r app.SearchReq
 	json.Unmarshal([]byte(reqJSON), &r)
 	return js(eng().Search(r))
 }
 
 // Deals takes a DealsReq as JSON.
-func Deals(reqJSON string) string {
+func Deals(reqJSON string) (out string) {
+	defer guard(&out)
 	var r app.DealsReq
 	json.Unmarshal([]byte(reqJSON), &r)
 	return js(eng().Deals(r))
@@ -126,8 +179,8 @@ func Models() string {
 }
 
 func StartAI()   { eng().StartAI() }
-func RunEnrich() { go eng().RunEnrich() }
-func RunCheck()  { go eng().RunCheck() }
+func RunEnrich() { go func() { defer guard(nil); eng().RunEnrich() }() }
+func RunCheck()  { go func() { defer guard(nil); eng().RunCheck() }() }
 func StopAI()    { eng().StopAI() }
 func ClearAI()   { eng().ClearAI() }
 

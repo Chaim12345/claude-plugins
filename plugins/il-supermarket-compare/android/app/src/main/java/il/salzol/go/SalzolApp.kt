@@ -21,6 +21,16 @@ import java.util.concurrent.TimeUnit
 class SalzolApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        // a crash is written to crash.txt and shown on the next start (with a share button)
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            runCatching {
+                java.io.File(filesDir, "crash.txt").appendText(
+                    "${java.util.Date()} ${android.os.Build.MODEL} Android ${android.os.Build.VERSION.RELEASE} v${BuildConfigInfo.version(this)}\n" +
+                        android.util.Log.getStackTraceString(e) + "\n")
+            }
+            prev?.uncaughtException(t, e)
+        }
         Droid.open(filesDir.absolutePath)
         Droid.setListener(object : Listener {
             override fun onEvent(eventJSON: String) = Bus.event(eventJSON)
@@ -59,4 +69,17 @@ class RefreshWorker(ctx: android.content.Context, params: WorkerParameters) : Co
         val err = Droid.refreshNow(8 * 60)
         if (err.isEmpty()) Result.success() else Result.retry()
     }
+}
+
+object BuildConfigInfo {
+    fun version(ctx: android.content.Context): String =
+        runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "" }.getOrDefault("")
+}
+
+/** What went wrong last time: the Kotlin crash and Go's caught panics or fatal crash. Read once. */
+fun takeCrashReport(ctx: android.content.Context): String {
+    val f = java.io.File(ctx.filesDir, "crash.txt")
+    val kt = if (f.exists()) f.readText().also { f.delete() } else ""
+    val go = runCatching { Droid.errors() }.getOrDefault("")
+    return (kt + go).trim()
 }

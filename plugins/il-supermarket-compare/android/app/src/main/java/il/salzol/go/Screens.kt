@@ -49,8 +49,8 @@ fun HomeScreen(nav: NavHostController) {
         PlaceBar(nav, st)
         if (h == null || !h.status.ready) {
             Loading(if (st?.syncing == true) st.syncMsg.ifEmpty { "מוריד את המחירונים של היום…" } else "טוען את הקטלוג…")
-            return
-        }
+
+        } else {
         LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item {
                 OutlinedButton(onClick = { nav.navigate("products") }, Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) {
@@ -93,6 +93,7 @@ fun HomeScreen(nav: NavHostController) {
             }
         }
     }
+}
 }
 
 @Composable
@@ -190,8 +191,8 @@ fun ProductScreen(nav: NavHostController, code: String) {
                 Icon(if (p.watched) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff, if (p.watched) "מפסיקים לעקוב" else "מעקב אחרי המחיר", tint = if (p.watched) P.brand else P.ink2)
             }
         }
-        if (p == null) { Loading("טוען…"); return }
-        if (!p.found) { Hint("המוצר לא נמצא במחירון הנוכחי."); return }
+        if (p == null) { Loading("טוען…") } else {
+        if (!p.found) { Hint("המוצר לא נמצא במחירון הנוכחי.") } else {
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -241,6 +242,8 @@ fun ProductScreen(nav: NavHostController, code: String) {
         }
     }
 }
+}
+}
 
 // ---------------------------------------------------------------- cart
 
@@ -254,7 +257,7 @@ fun CartScreen(nav: NavHostController) {
             Title("הסל", Modifier.weight(1f))
             if ((c?.count ?: 0) > 0) TextButton(onClick = { confirm = true }) { Text("ריקון הסל", color = P.bad) }
         }
-        if (c == null) { Loading("טוען…"); return }
+        if (c == null) { Loading("טוען…") } else {
         if (c.count == 0) {
             Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Text("הסל ריק", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = P.ink)
@@ -262,8 +265,8 @@ fun CartScreen(nav: NavHostController) {
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = { nav.navigate("products") }) { Text("חיפוש מוצרים") }
             }
-            return
-        }
+
+        } else {
         LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 val best = c.rows.firstOrNull()
@@ -308,6 +311,8 @@ fun CartScreen(nav: NavHostController) {
             }
         }
     }
+}
+}
     if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("לרוקן את הסל?") },
         confirmButton = { TextButton(onClick = { confirm = false; scope.launch { Go.clearCart(); Bus.poke() } }) { Text("ריקון", color = P.bad) } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("ביטול") } })
@@ -341,7 +346,7 @@ fun DealsScreen(nav: NavHostController) {
     val v = view
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().background(P.surface).padding(14.dp)) { Title("מבצעים") }
-        if (v == null) { Loading("מסדר את המבצעים מכל הסניפים…"); return }
+        if (v == null) { Loading("מסדר את המבצעים מכל הסניפים…") } else {
         val add: (DealView) -> Unit = { d -> scope.launch { Go.setQty(d.code, d.inCart + d.qty); Bus.poke() } }
         LazyColumn(state = list, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
@@ -378,4 +383,5 @@ fun DealsScreen(nav: NavHostController) {
             }
         }
     }
+}
 }

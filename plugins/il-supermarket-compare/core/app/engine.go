@@ -8,8 +8,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strings"
@@ -54,6 +56,16 @@ type Event struct {
 	Msg  string `json:"msg,omitempty"`
 	Done int    `json:"done,omitempty"`
 	Of   int    `json:"of,omitempty"`
+}
+
+// OnPanic receives a recovered panic from a background goroutine (droid logs it to a file).
+var OnPanic = func(string) {}
+
+// safe is deferred at the top of every goroutine: a bug in one background job is logged, not fatal.
+func safe(what string) {
+	if r := recover(); r != nil {
+		OnPanic(what + ": " + fmt.Sprint(r) + "\n" + string(debug.Stack()))
+	}
 }
 
 // Engine is the app. One per process (see droid).
@@ -114,7 +126,7 @@ func Open(dir string) (*Engine, error) {
 		return nil, err
 	}
 	e.store, e.verdicts = st, ai.OpenVerdicts(dir)
-	go e.loadCatalog(false)
+	go func() { defer safe("load catalog"); e.loadCatalog(false) }()
 	return e, nil
 }
 
@@ -162,7 +174,7 @@ func (e *Engine) loadCatalog(afterSync bool) {
 	e.mu.Unlock()
 	e.send(Event{Type: "catalog"})
 	if afterSync {
-		go e.autoAI()
+		go func() { defer safe("ai"); e.autoAI() }()
 	}
 }
 
@@ -232,6 +244,7 @@ func (e *Engine) Sync() {
 	e.mu.Unlock()
 	e.send(Event{Type: "sync", Msg: "מחפש סניפים…"})
 	go func() {
+		defer safe("sync")
 		defer cancel()
 		err := e.syncNow(ctx, p)
 		e.mu.Lock()
