@@ -6,3 +6,11 @@
 -keep class androidx.work.** { *; }
 -keep class * extends androidx.room.RoomDatabase { *; }
 -keep class androidx.room.** { *; }
+# ML Kit / Google Play services find their components by class name from the manifest
+# (MlKitComponentDiscoveryService meta-data): R8 removes the registrars as unused, and tapping the
+# barcode button then dies with an NPE inside GmsBarcodeScanning.getClient
+-keep class * implements com.google.firebase.components.ComponentRegistrar { *; }
+-keep class com.google.firebase.components.** { *; }
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_code_scanner.** { *; }
+-dontwarn com.google.mlkit.**
