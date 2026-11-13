@@ -96,7 +96,7 @@ func banner(chain string, r StoreRow) string {
 var DiscountBanners = map[string]bool{
 	"רמי לוי": true, "אושר עד": true, "יוחננוף": true, "קשת טעמים": true, "יש חסד": true,
 	"שופרסל יוניברס": true, "שופרסל דיל": true, "קרפור היפר": true,
-	"ויקטורי": true, "מחסני השוק": true, "חצי חינם": true, "סופר יודה": true, "יילו": true,
+	"ויקטורי": true, "מחסני השוק": true, "חצי חינם": true,
 }
 
 var notSupermarketRx = regexp.MustCompile(`(?i)(^|\s)BE(\s|$)|אונליין|online|@|https?://|מרלוג|מחסן`)
@@ -333,25 +333,43 @@ func (d *Directory) Nearby(lat, lon, radiusKm float64, max int) []NearStore {
 		}
 	}
 	sort.Slice(cands, func(i, j int) bool { return cands[i].Km < cands[j].Km })
-	seen := map[string]int{}
+	// Pass 1: the nearest branch of every chain, so every chain around is compared. Pass 2: further
+	// branches of discount chains (their prices differ by branch), nearest first, while slots remain.
+	// A listing metres from one already chosen, under the same chain name, is kept as its alternate.
 	var out []NearStore
-	for _, c := range cands {
-		if !DiscountBanners[c.Banner] && seen[c.Banner] >= 1 {
-			// another listing of a shop already chosen (the same chain name, metres apart)?
-			for k := range out {
-				if out[k].Banner == c.Banner && out[k].Key() != c.Key() && Km(out[k].Lat, out[k].Lon, c.Lat, c.Lon) <= DuplicateKm {
-					out[k].Alt = append(out[k].Alt, c.DirStore)
-					break
-				}
+	chosen := map[string]bool{}
+	dup := func(c NearStore) bool {
+		for k := range out {
+			if out[k].Banner == c.Banner && out[k].Key() != c.Key() && Km(out[k].Lat, out[k].Lon, c.Lat, c.Lon) <= DuplicateKm {
+				out[k].Alt = append(out[k].Alt, c.DirStore)
+				return true
 			}
+		}
+		return false
+	}
+	seen := map[string]bool{}
+	for _, c := range cands {
+		if seen[c.Banner] {
 			continue
 		}
-		seen[c.Banner]++
-		out = append(out, c)
 		if max > 0 && len(out) >= max {
 			break
 		}
+		seen[c.Banner] = true
+		chosen[c.Key()] = true
+		out = append(out, c)
 	}
+	for _, c := range cands {
+		if chosen[c.Key()] || dup(c) {
+			continue
+		}
+		if !DiscountBanners[c.Banner] || (max > 0 && len(out) >= max) {
+			continue
+		}
+		chosen[c.Key()] = true
+		out = append(out, c)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Km < out[j].Km })
 	return out
 }
 

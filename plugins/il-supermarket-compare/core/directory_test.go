@@ -238,3 +238,32 @@ func TestAddressFromStoreName(t *testing.T) {
 		t.Errorf("nested stores = %+v, %v", rows, err)
 	}
 }
+
+func TestNearbyEveryChainFirst(t *testing.T) {
+	var st []DirStore
+	add := func(chain, id, banner string, km float64) {
+		st = append(st, DirStore{Chain: chain, StoreID: id, Banner: banner, Lat: 32.0 + km/111, Lon: 35.0})
+	}
+	add("osherad", "1", "אושר עד", 0.5)
+	add("osherad", "2", "אושר עד", 1.0)
+	add("osherad", "3", "אושר עד", 1.5)
+	add("Paz_bo", "1", "יילו", 0.6)
+	add("Paz_bo", "2", "יילו", 0.7) // a convenience chain: one branch is enough
+	add("wolt", "1", "וולט מרקט", 3.0)
+	add("SalachD", "1", "סאלח דבאח", 4.5)
+	d := &Directory{Stores: st}
+	near := d.Nearby(32.0, 35.0, 10, 5)
+	got := map[string]int{}
+	for _, n := range near {
+		got[n.Banner]++
+	}
+	// every chain first (4 chains), then one more discount branch fills the 5th slot
+	if len(near) != 5 || got["יילו"] != 1 || got["וולט מרקט"] != 1 || got["סאלח דבאח"] != 1 || got["אושר עד"] != 2 {
+		t.Errorf("near = %v", got)
+	}
+	for i := 1; i < len(near); i++ {
+		if near[i].Km < near[i-1].Km {
+			t.Error("result should be nearest first")
+		}
+	}
+}

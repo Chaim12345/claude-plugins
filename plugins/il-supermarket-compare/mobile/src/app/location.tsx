@@ -40,7 +40,7 @@ export default function LocationSheet() {
   }, [cand, radius, via]);
 
   async function find() {
-    const a = q.trim();
+    const a = q.replace(/^[\s,.;:\-]+|[\s,.;:\-]+$/g, ""); // a stray comma from the keyboard is not part of the address
     if (!a) return;
     setMsg({ text: "מאתר את הכתובת…" }); setNear(null);
     try {

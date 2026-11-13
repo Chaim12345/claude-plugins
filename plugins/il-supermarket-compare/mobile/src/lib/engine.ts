@@ -98,7 +98,7 @@ function deviceEngine(): Engine {
         sub.remove();
       }
     } : undefined,
-    async nearby(lat, lon, r) { return JSON.parse(await m.nearbyStores(lat, lon, r, 14)) as NearStore[]; },
+    async nearby(lat, lon, r) { return JSON.parse(await m.nearbyStores(lat, lon, r, 18)) as NearStore[]; },
     // The phone's own geocoder first, checked against the typed city's centre (from the built-in
     // store directory, offline); OpenStreetMap through the Go core when it's missing, refused or
     // points at another town.

@@ -298,7 +298,7 @@ func pointArgs(r *http.Request) (lat, lon, radius float64, max int, ok bool) {
 	}
 	max, err = strconv.Atoi(q.Get("max"))
 	if err != nil || max <= 0 || max > 30 {
-		max = 14
+		max = 18
 	}
 	return lat, lon, radius, max, true
 }

@@ -110,12 +110,16 @@ func NearbyStores(dataDir string, lat, lon, radiusKm float64, max int) (string, 
 }
 
 // SyncNear syncs the stores around a point (GPS or a geocoded address) and returns catalog.json's path.
+// NearbyMax is how many branches a location compares: every chain around first, then more
+// branches of the discount chains. A cached sync of 18 takes a few seconds on a phone.
+const NearbyMax = 18
+
 func SyncNear(dataDir, place string, lat, lon, radiusKm float64, l Listener) (string, error) {
 	d, err := core.LoadDirectory(dataDir)
 	if err != nil {
 		return "", err
 	}
-	near := d.Nearby(lat, lon, radiusKm, 14)
+	near := d.Nearby(lat, lon, radiusKm, NearbyMax)
 	if len(near) == 0 {
 		return "", errNoStores
 	}
