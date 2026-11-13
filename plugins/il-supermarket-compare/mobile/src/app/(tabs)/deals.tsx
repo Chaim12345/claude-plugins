@@ -1,29 +1,42 @@
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
+import { SectionHead } from "../../components/blocks";
 import { DealCard } from "../../components/DealCard";
 import { Button, T, useTheme } from "../../components/ui";
 import { chainKey } from "../../lib/compare";
-import { bestOfWeek, cartQty, defaultFilters, endingSoon, endingSoonCount, filterDeals, mineOf, sortDeals, type Basis, type ClubMode, type DealItem, type DealSort } from "../../lib/dealsFeed";
+import { biggestSavings, cartQty, dealScore, defaultFilters, endingSoon, endingSoonCount, filterDeals, mineOf, onMine, sortDeals, stockUp, type ClubMode, type DealItem, type DealSort } from "../../lib/dealsFeed";
 import { dealFeed } from "../../lib/feed";
+import { affinity } from "../../lib/recommend";
 import { useData } from "../../lib/store";
+import { useWatch } from "../../lib/watchctx";
 
 const SORTS: { id: DealSort; label: string }[] = [
-  { id: "pct", label: "אחוז חיסכון" }, { id: "save", label: "חיסכון ב־₪" }, { id: "ending", label: "נגמר בקרוב" }, { id: "unit", label: "הכי זול ליחידה" },
+  { id: "useful", label: "הכי שווה לכם" }, { id: "save", label: "חיסכון ב־₪" }, { id: "pct", label: "אחוז הנחה" }, { id: "ending", label: "נגמר בקרוב" }, { id: "unit", label: "זול ליחידה" },
 ];
 
+/** Below this real saving (agorot, for the quantity the deal needs) a deal is noise, hidden unless asked for. */
+const TRIVIAL = 100;
+
+/**
+ * Deals, organised by what helps: deals on what you buy, what is worth stocking up on, the biggest
+ * savings in shekels and what ends soon; then the full list, ordered by how useful each deal is to
+ * this shopper. Every number is measured against the cheapest regular price around them, and deals
+ * whose numbers need checking say so.
+ */
 export default function DealsScreen() {
   const t = useTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { catalog, products, active, cart, club, ready, place, setQty, addMany } = useData();
+  const { catalog, products, active, cart, club, ready, place, freq, baskets, setQty, addMany } = useData();
+  const { state: watch } = useWatch();
   const [cat, setCat] = useState("all");
   const [chain, setChain] = useState("all");
   const [clubMode, setClubMode] = useState<ClubMode>("none");
   const [mineOnly, setMineOnly] = useState(false);
   const [onlyReal, setOnlyReal] = useState(true);
-  const [sort, setSort] = useState<DealSort>("pct");
-  const basis: Basis = "cheapest"; // savings are always measured against the cheapest regular price nearby
+  const [showSmall, setShowSmall] = useState(false);
+  const [sort, setSort] = useState<DealSort>("useful");
   const clubTouched = useRef(false);
   const cols = Math.max(2, Math.min(6, Math.floor((width - 24) / 190)));
 
@@ -34,16 +47,28 @@ export default function DealsScreen() {
   // follow the user's club settings until they choose by hand
   useEffect(() => { if (ready && !clubTouched.current) setClubMode(hasClub ? "club" : "none"); }, [ready, hasClub]);
 
-  const mine = useMemo(() => (mineOnly ? mineOf(cart, products) : null), [mineOnly, cart, products]);
-  const filters = useMemo(() => ({ ...defaultFilters, cat, chain, club: clubMode, onlyReal, mine }), [cat, chain, clubMode, onlyReal, mine]);
+  const mine = useMemo(() => new Set([...Object.keys(cart), ...Object.keys(freq), ...watch.followed]), [cart, freq, watch.followed]);
+  const aff = useMemo(() => affinity({ products, cart, freq, baskets }), [products, cart, freq, baskets]);
+  const mineFilter = useMemo(() => (mineOnly ? mineOf(cart, products) : null), [mineOnly, cart, products]);
+  const filters = useMemo(() => ({ ...defaultFilters, cat, chain, club: clubMode, onlyReal, mine: mineFilter }), [cat, chain, clubMode, onlyReal, mineFilter]);
   const f = useMemo(() => filterDeals(all, filters), [all, filters]);
-  const list = useMemo(() => sortDeals(f.items, sort, basis), [f.items, sort, basis]);
-  // the top sections ignore the category / chain / cart filters and the "real only" switch (they are real-only by construction)
+  const small = useMemo(() => f.items.filter(d => d.verdict === "real" ? d.realAgorot < TRIVIAL : d.saveAgorot < TRIVIAL).length, [f.items]);
+  const list = useMemo(() => {
+    const items = showSmall ? f.items : f.items.filter(d => (d.verdict === "real" ? d.realAgorot : d.saveAgorot) >= TRIVIAL);
+    if (sort !== "useful") return sortDeals(items, sort, "cheapest");
+    const ctx = { mine, affinity: aff, now };
+    return [...items].sort((a, b) => dealScore(b, ctx) - dealScore(a, ctx));
+  }, [f.items, sort, showSmall, mine, aff, now]);
+
+  // the sections ignore the category / chain / cart filters (they are trusted, real deals by construction)
   const base = useMemo(() => filterDeals(all, { ...defaultFilters, club: clubMode, onlyReal: false }).items, [all, clubMode]);
-  const best = useMemo(() => bestOfWeek(base, 10), [base]);
+  const forMe = useMemo(() => onMine(base, mine, 12), [base, mine]);
+  const stock = useMemo(() => stockUp(base, 10), [base]);
+  const big = useMemo(() => biggestSavings(base, 10), [base]);
   const soon = useMemo(() => endingSoon(base, now, 10), [base, now]);
   const soonTotal = useMemo(() => endingSoonCount(base, now), [base, now]);
   const sections = cat === "all" && chain === "all" && !mineOnly;
+  const checked = useMemo(() => base.filter(d => d.verdict === "real" && d.confidence === "check").length, [base]);
 
   const chains = useMemo(() => {
     const m = new Map<string, string>();
@@ -67,16 +92,12 @@ export default function DealsScreen() {
   }
 
   const card = (d: DealItem, w?: number) => (
-    <DealCard d={d} catalogStores={catalog.stores} now={now} qty={cart[d.code] ?? 0} add={add} setQty={setQty} open={open} width={w} />
+    <DealCard d={d} catalogStores={catalog.stores} now={now} qty={cart[d.code] ?? 0} add={add} setQty={setQty} open={open} width={w} mine={mine.has(d.code)} />
   );
   const row = (title: string, sub: string, items: DealItem[], more?: () => void) => items.length ? (
-    <View style={{ gap: 6 }}>
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
-        <T style={{ fontSize: 18, fontWeight: "800" }}>{title}</T>
-        {more ? <Pressable onPress={more}><T style={{ color: t.brand, fontWeight: "700", fontSize: 13 }}>הכל</T></Pressable> : null}
-      </View>
-      <T style={{ color: t.ink2, fontSize: 12 }}>{sub}</T>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 4 }}>
+    <View style={{ gap: 8 }}>
+      <SectionHead title={title} sub={sub} action={more ? "הכל" : undefined} onAction={more} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 2 }}>
         {items.map(d => <View key={d.id}>{card(d, 176)}</View>)}
       </ScrollView>
     </View>
@@ -93,36 +114,48 @@ export default function DealsScreen() {
       contentContainerStyle={{ padding: 12, gap: 10, paddingBottom: 40 }}
       columnWrapperStyle={{ gap: 10 }}
       ListHeaderComponent={
-        <View style={{ gap: 12, marginBottom: 2 }}>
-          <View style={{ gap: 2 }}>
-            <T style={{ fontSize: 22, fontWeight: "800" }}>מבצעים</T>
-            <T style={{ color: t.ink2, fontSize: 13, lineHeight: 19 }}>{all.length.toLocaleString("he-IL")} מבצעים פעילים ב־{active.length} סניפים. האחוז על כל כרטיס נמדד מול המחיר הרגיל הזול ביותר סביבכם, לא מול מחיר המדף של אותו סניף.</T>
+        <View style={{ gap: 16, marginBottom: 2 }}>
+          <View style={{ gap: 4 }}>
+            <T accessibilityRole="header" style={{ fontSize: 22, fontWeight: "800" }}>מבצעים</T>
+            <T style={{ color: t.ink2, fontSize: 13, lineHeight: 19 }}>
+              כל חיסכון נמדד מול המחיר הרגיל הזול ביותר בסניפים שסביבכם, לכמות שהמבצע דורש. מבצע שלא זול ממחיר רגיל בסניף אחר מסומן.
+              {checked ? ` ${checked.toLocaleString("he-IL")} מבצעים מסומנים ״לבדוק בקופה״: הנתונים שלהם לא חד־משמעיים.` : ""}
+            </T>
           </View>
-          {sections ? row("הכי שווים השבוע", "זולים גם מהמחיר הרגיל בכל סניף אחר, אחד לכל מוצר", best, () => setSort("pct")) : null}
+
+          {sections ? row("במבצע ממה שאתם קונים", "מהסל, מהרגילים ומהמוצרים שאתם עוקבים אחריהם", forMe) : null}
+          {sections ? row("שווה להצטייד", "מוצרים שמחזיקים מעמד, 20% ומעלה מתחת למחיר הרגיל הזול, וחיסכון של ₪3 לפחות", stock) : null}
+          {sections ? row("החיסכון הגדול ביותר", "בשקלים, לכמות שהמבצע דורש", big, () => setSort("save")) : null}
           {sections ? row("נגמרים בקרוב", `מסתיימים ב־48 השעות הקרובות (${soonTotal.toLocaleString("he-IL")} מבצעים)`, soon, () => setSort("ending")) : null}
 
-          <Chips items={[{ id: "all", name: "כל הקטגוריות" }, ...catalog.categories]} value={cat} onChange={setCat} />
-          <Chips items={[{ id: "all", name: "כל הרשתות" }, ...chains]} value={chain} onChange={setChain} />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: "center" }}>
-            <Toggle on={clubMode === "club"} check label="גם מבצעי מועדון" onPress={() => { clubTouched.current = true; setClubMode(m => (m === "club" ? "none" : "club")); }} />
-            <Toggle on={mineOnly} check label="רק מה שקשור לסל שלי" onPress={() => setMineOnly(v => !v)} />
-            <Toggle on={onlyReal} check label="רק הנחה אמיתית" onPress={() => setOnlyReal(v => !v)} />
-          </ScrollView>
-          {clubMode === "club" && !hasClub ? <T style={{ color: t.ink2, fontSize: 12 }}>סמנו ״יש לי כרטיס מועדון״ בסל כדי לראות מבצעי מועדון.</T> : null}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: "center" }}>
-            <Text style={{ color: t.ink2, fontSize: 13 }}>מיון:</Text>
-            {SORTS.map(s => (
-              <Pressable key={s.id} onPress={() => setSort(s.id)} accessibilityRole="button" accessibilityState={{ selected: sort === s.id }} accessibilityLabel={`מיון: ${s.label}`}
-                style={{ paddingHorizontal: 12, minHeight: 36, justifyContent: "center", borderRadius: 999, backgroundColor: sort === s.id ? t.ink : t.surface2 }}>
-                <Text style={{ color: sort === s.id ? t.bg : t.ink, fontSize: 13, fontWeight: "600" }}>{s.label}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-          {sort === "unit" ? <T style={{ color: t.ink2, fontSize: 12 }}>לפי סוג: מחיר ל־100 גרם, אחר כך לליטר, אחר כך ליחידה.</T> : null}
-          <T style={{ color: t.ink2, fontSize: 13 }}>
-            <Text style={{ fontWeight: "700", color: t.ink }}>{list.length.toLocaleString("he-IL")}</Text> מבצעים
-            {f.hiddenNotReal ? ` · ${f.hiddenNotReal.toLocaleString("he-IL")} הוסתרו: לא זולים מהמחיר הרגיל בסניף אחר` : ""}
-          </T>
+          <View style={{ gap: 10 }}>
+            <SectionHead title="כל המבצעים" />
+            <Chips items={[{ id: "all", name: "כל הקטגוריות" }, ...catalog.categories]} value={cat} onChange={setCat} />
+            <Chips items={[{ id: "all", name: "כל הרשתות" }, ...chains]} value={chain} onChange={setChain} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: "center" }}>
+              <Toggle on={clubMode === "club"} label="גם מבצעי מועדון" onPress={() => { clubTouched.current = true; setClubMode(m => (m === "club" ? "none" : "club")); }} />
+              <Toggle on={mineOnly} label="רק מה שקשור לסל שלי" onPress={() => setMineOnly(v => !v)} />
+              <Toggle on={onlyReal} label="רק הנחה אמיתית" onPress={() => setOnlyReal(v => !v)} />
+              <Toggle on={showSmall} label="גם חיסכון קטן מ־₪1" onPress={() => setShowSmall(v => !v)} />
+            </ScrollView>
+            {clubMode === "club" && !hasClub ? <T style={{ color: t.ink2, fontSize: 12 }}>סמנו ״יש לי כרטיס מועדון״ בסל כדי לראות מבצעי מועדון.</T> : null}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: "center" }}>
+              <Text style={{ color: t.ink2, fontSize: 13 }}>מיון:</Text>
+              {SORTS.map(s => (
+                <Pressable key={s.id} onPress={() => setSort(s.id)} accessibilityRole="button" accessibilityState={{ selected: sort === s.id }} accessibilityLabel={`מיון: ${s.label}`}
+                  style={{ paddingHorizontal: 12, minHeight: 36, justifyContent: "center", borderRadius: 999, backgroundColor: sort === s.id ? t.ink : t.surface2 }}>
+                  <Text style={{ color: sort === s.id ? t.bg : t.ink, fontSize: 13, fontWeight: "600" }}>{s.label}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            {sort === "useful" ? <T style={{ color: t.ink2, fontSize: 12 }}>לפי כמה שקלים תחסכו באמת, עם עדיפות למה שאתם קונים, ופחות משקל למבצעים שצריך לבדוק או שמחייבים לקנות הרבה ממוצר שמתקלקל.</T> : null}
+            {sort === "unit" ? <T style={{ color: t.ink2, fontSize: 12 }}>לפי סוג: מחיר ל־100 גרם, אחר כך לליטר, אחר כך ליחידה.</T> : null}
+            <T style={{ color: t.ink2, fontSize: 13 }}>
+              <Text style={{ fontWeight: "700", color: t.ink }}>{list.length.toLocaleString("he-IL")}</Text> מבצעים
+              {f.hiddenNotReal ? ` · ${f.hiddenNotReal.toLocaleString("he-IL")} הוסתרו: לא זולים מהמחיר הרגיל בסניף אחר` : ""}
+              {!showSmall && small ? ` · ${small.toLocaleString("he-IL")} עם חיסכון של פחות מ־₪1 מוסתרים` : ""}
+            </T>
+          </View>
         </View>
       }
       ListEmptyComponent={<T style={{ color: t.ink2, textAlign: "center", padding: 30 }}>אין מבצעים שמתאימים לסינון. נסו להסיר מסנן.</T>}
@@ -136,8 +169,8 @@ function Chips({ items, value, onChange }: { items: { id: string; name: string }
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
       {items.map(c => (
-        <Pressable key={c.id} onPress={() => onChange(c.id)} accessibilityState={{ selected: value === c.id }}
-          style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, backgroundColor: value === c.id ? t.brand : t.surface2 }}>
+        <Pressable key={c.id} onPress={() => onChange(c.id)} accessibilityRole="button" accessibilityState={{ selected: value === c.id }}
+          style={{ paddingHorizontal: 14, minHeight: 38, justifyContent: "center", borderRadius: 12, backgroundColor: value === c.id ? t.brand : t.surface2 }}>
           <Text style={{ fontWeight: "600", color: value === c.id ? t.brandInk : t.ink }}>{c.name}</Text>
         </Pressable>
       ))}
@@ -145,12 +178,12 @@ function Chips({ items, value, onChange }: { items: { id: string; name: string }
   );
 }
 
-function Toggle({ on, label, onPress, check, small }: { on: boolean; label: string; onPress: () => void; check?: boolean; small?: boolean }) {
+function Toggle({ on, label, onPress }: { on: boolean; label: string; onPress: () => void }) {
   const t = useTheme();
   return (
-    <Pressable onPress={onPress} accessibilityRole={check ? "checkbox" : "radio"} accessibilityState={check ? { checked: on } : { selected: on }}
-      style={{ paddingHorizontal: small ? 10 : 12, paddingVertical: small ? 4 : 6, borderRadius: 999, borderWidth: 1, borderColor: on ? t.brand : t.line, backgroundColor: on ? t.brandSoft : t.surface }}>
-      <Text style={{ color: t.ink, fontWeight: "600", fontSize: small ? 12 : 13 }}>{on && check ? "✓ " : ""}{label}</Text>
+    <Pressable onPress={onPress} accessibilityRole="checkbox" accessibilityState={{ checked: on }} aria-checked={on}
+      style={{ paddingHorizontal: 12, minHeight: 36, justifyContent: "center", borderRadius: 999, borderWidth: 1, borderColor: on ? t.brand : t.line, backgroundColor: on ? t.brandSoft : t.surface }}>
+      <Text style={{ color: t.ink, fontWeight: "600", fontSize: 13 }}>{on ? "✓ " : ""}{label}</Text>
     </Pressable>
   );
 }

@@ -254,3 +254,42 @@ test("misModeled: 'the second one at half price' bundles are dropped (the core s
 test("catalogs without promotions produce no deals", () => {
   assert.deepEqual(build(cat), []);
 });
+
+test("namesProduct: Hebrew word forms and generic deal words", async () => {
+  const { namesProduct } = await import("./dealsFeed.ts");
+  assert.ok(namesProduct("מגוון גלידה בטעמים 3 ב 15.90", "גלידת שמנת וניל בגביע"));      // גלידה / גלידת
+  assert.ok(namesProduct("2ב13.90 כוסברה/פטרוזיליה/שמיר", "פטרוזיליה ארוזה"));
+  assert.ok(namesProduct("מבצע", "כל דבר"));                                              // nothing specific: not flagged
+  assert.ok(!namesProduct("דפי אורז 400 גר 2 ב 21.90", "אצות נורי לסושי"));
+  assert.ok(!namesProduct("מסטיק איירוויז מנטה אקליפטוס", "מסטיק אורביט פרופשיונל ספירמינט") === false); // shares "מסטיק"
+});
+
+test("confidence, usefulness score and the deal sections", async () => {
+  const { dealScore, stockUp, biggestSavings, onMine } = await import("./dealsFeed.ts");
+  const c: Catalog = { ...cat,
+    products: [
+      ["milk", "חלב 3% 1 ליטר", "dairy", 0, [1200, 1200, 1150, 1250], null, null],
+      ["oil", "שמן קנולה 1 ליטר", "pantry", 0, [1500, 1500, 1400, 1450], null, null],
+      ["gum", "מסטיק אורביט", "snacks", 0, [1350, 1350, 1300, 1400], null, null],
+      ["rolls", "לחמניות", "bakery", 0, [200, 200, 180, 210], null, null],
+    ] as Catalog["products"],
+    promos: [[
+      pr({ id: "o", kind: "bundle", minQty: 2, value: 2000, codes: ["oil"], desc: "שמן קנולה 2 ב 20" }),              // saves 8.00 on 2, 29%
+      pr({ id: "g", kind: "price", value: 900, codes: ["gum", "milk"], desc: "מסטיק איירוויז 9.00" }),                // milk not named, 2 codes
+      pr({ id: "r", kind: "bundle", minQty: 6, value: 600, codes: ["rolls"], desc: "לחמניות 6 ב 6" }),               // perishable x6
+    ], [], [], []] };
+  const items = filterDeals(build(c), keep).items;
+  const by = (code: string) => items.find(d => d.code === code)!;
+  assert.equal(by("oil").confidence, "ok");
+  assert.equal(by("gum").confidence, "ok");
+  assert.equal(by("milk").confidence, "check");
+  assert.match(by("milk").why!, /איירוויז/);
+  assert.equal(by("gum").realAgorot, 400);
+  // usefulness: the user's own product counts double; a flagged deal counts half
+  assert.ok(dealScore(by("milk"), { mine: new Set(["milk"]) }) > dealScore(by("milk")));
+  assert.ok(dealScore(by("milk")) < dealScore({ ...by("milk"), confidence: "ok" }));
+  assert.ok(dealScore(by("rolls")) < dealScore({ ...by("rolls"), product: { ...by("rolls").product, cat: "pantry" } })); // 6 rolls that go stale
+  assert.deepEqual(stockUp(items).map(d => d.code), ["oil", "gum"]);           // keeps, 20%+, ₪3+, trusted; most ₪ first
+  assert.ok(!biggestSavings(items).some(d => d.code === "milk"));             // flagged deals are left out of the top lists
+  assert.deepEqual(onMine(items, new Set(["rolls"])).map(d => d.code), ["rolls"]);
+});

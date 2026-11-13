@@ -43,6 +43,13 @@ export type DealItem = {
   unitPrice: UnitPrice | null; // per 100 g / L / piece, under the deal
   shelfUnitPrice: UnitPrice | null;
   max: number | null; // units limit per customer
+  /**
+   * "ok", or "check" when the numbers may not mean what they seem: the promotion's own text doesn't
+   * name this product (it was listed under a promotion for something else), one promotion covers
+   * products at very different prices, or the discount is implausibly deep. Shown as "check at the till".
+   */
+  confidence: "ok" | "check";
+  why?: string; // the reason for "check", in Hebrew
 };
 
 const DAY = 86_400_000;
@@ -98,10 +105,13 @@ export function buildDeals(c: Catalog, products: Map<string, Product>, opts: Bui
           }
           continue;
         }
+        // one promotion over products at very different shelf prices: "any of these for X"
+        const spread = promoSpread(pr, i, products);
         out.set(id, {
           id, code, product: p, chain: ck, chainLabel: ck === "shufersal" ? "שופרסל" : store.chain, promo: pr, stores: [i], rep: i,
           qty, unit, shelf, cheapest: 0, cheapestAt: i, comparedStores: 0, savePct: 0, saveAgorot: 0, realPct: 0, realAgorot: 0,
           verdict: "alone", club: pr.club, clubOwned: !!club[ck], endMs, unitPrice: null, shelfUnitPrice: null, max: pr.max && pr.max > 0 ? pr.max : null,
+          confidence: "ok", why: spread >= 2.5 ? "spread" : undefined,
         });
       }
     }
@@ -120,8 +130,41 @@ export function buildDeals(c: Catalog, products: Map<string, Product>, opts: Bui
     const z = sizes.get(d.code)!;
     d.unitPrice = unitPrice(z, d.unit);
     d.shelfUnitPrice = unitPrice(z, d.shelf);
+    const named = namesProduct(d.promo.desc, d.product.name);
+    if (d.why === "spread") { d.confidence = "check"; d.why = "המבצע רשום על כמה מוצרים במחירים שונים מאוד"; }
+    else if (!named && d.promo.codes.length >= 2) { d.confidence = "check"; d.why = `נוסח המבצע: ״${d.promo.desc}״`; }
+    else if (d.realPct > 60) { d.confidence = "check"; d.why = "הנחה חריגה במיוחד"; }
+    else d.why = undefined;
   }
   return items;
+}
+
+/** Highest / lowest shelf price at store i among the promotion's products (1 when it lists one product). */
+function promoSpread(pr: Promo, i: number, products: Map<string, Product>): number {
+  if (pr.codes.length < 2) return 1;
+  let lo = Infinity, hi = 0;
+  for (const code of pr.codes) {
+    const v = products.get(code)?.prices[i];
+    if (v == null) continue;
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return lo === Infinity || lo <= 0 ? 1 : hi / lo;
+}
+
+const STEM = (w: string) => w.replace(/^(ו|ה|ב|ל|מ|ש)(?=[א-ת]{3})/, "");
+// Words that say "this is a deal", not what it is for.
+const GENERIC = new Set("מבצע מבצעים הנחה מחיר מוצרים מוצר מגוון בטעמים טעמים שונים סוגים במבחר מבחר יחידות ליחידה כולל פקדון פיקדון מועדון חברי לקוחות קנה קבל מתנה בלבד".split(" "));
+const wordsOf = (s: string) => s.replace(/["'׳״`.,()\-+/*]/g, " ").split(/\s+/).filter(w => w.length >= 3 && !/\d/.test(w) && !GENERIC.has(w)).map(STEM);
+
+/** Does the promotion's text mention the product (a word of 3+ letters in common)? Empty text counts as yes. */
+export function namesProduct(desc: string, name: string): boolean {
+  const d = wordsOf(desc);
+  if (!d.length) return true;
+  const n = wordsOf(name);
+  // Hebrew inflects word endings ("גלידה" / "גלידת"): words match on their first four letters.
+  const head = (w: string) => w.slice(0, 4);
+  return d.some(w => n.some(x => x.includes(w) || w.includes(x) || (w.length >= 4 && x.length >= 4 && head(w) === head(x))));
 }
 
 export type ClubMode = "none" | "club"; // "no club needed" | "club deals too (for the chains the user has a card for)"
@@ -166,7 +209,7 @@ export function filterDeals(all: DealItem[], f: Filters): Filtered {
   return { items, hiddenClub: u.hiddenClub, hiddenNotReal };
 }
 
-export type DealSort = "pct" | "save" | "ending" | "unit";
+export type DealSort = "useful" | "pct" | "save" | "ending" | "unit";
 /** What the percentage and shekel savings are measured against. */
 export type Basis = "shelf" | "cheapest";
 
@@ -176,10 +219,67 @@ const agoOf = (d: DealItem, b: Basis) => (b === "shelf" ? d.saveAgorot : d.realA
 export function sortDeals(items: DealItem[], sort: DealSort, basis: Basis = "cheapest"): DealItem[] {
   const out = [...items];
   const byPct = (a: DealItem, b: DealItem) => pctOf(b, basis) - pctOf(a, basis) || agoOf(b, basis) - agoOf(a, basis) || a.id.localeCompare(b.id);
-  if (sort === "pct") out.sort(byPct);
+  if (sort === "useful") out.sort((a, b) => dealScore(b) - dealScore(a) || byPct(a, b));
+  else if (sort === "pct") out.sort(byPct);
   else if (sort === "save") out.sort((a, b) => agoOf(b, basis) - agoOf(a, basis) || byPct(a, b));
   else if (sort === "ending") out.sort((a, b) => (a.endMs ?? Infinity) - (b.endMs ?? Infinity) || byPct(a, b));
   else out.sort((a, b) => compareUnit(a.unitPrice, b.unitPrice) || byPct(a, b));
+  return out;
+}
+
+/** Categories that keep: buying ahead at a deep discount is worth it. */
+export const STOCK_UP_CATS = new Set(["pantry", "cleaning", "care", "drinks", "frozen", "pets", "snacks"]);
+const PERISHABLE = new Set(["dairy", "bakery", "produce", "meat"]);
+
+export type ScoreCtx = { mine?: Set<string>; affinity?: Map<string, number>; now?: number };
+
+/**
+ * How useful a deal is to this shopper, in "shekels that matter": the real saving (against the
+ * cheapest regular price nearby, for the quantity the deal needs), counted double for products they
+ * buy and boosted by category affinity, halved when it needs checking, cut when it makes them buy 3+
+ * of something that spoils, and nudged up when it ends within 48 hours. A deal that is not cheaper
+ * than the regular price elsewhere scores 0.
+ */
+export function dealScore(d: DealItem, ctx: ScoreCtx = {}): number {
+  if (d.verdict === "notCheapest") return 0;
+  const save = Math.max(0, d.verdict === "real" ? d.realAgorot : d.saveAgorot * 0.5) / 100; // ₪
+  let s = Math.log1p(save) * (1 + Math.max(0, d.realPct) / 100);
+  if (ctx.mine?.has(d.code)) s *= 2;
+  else if (ctx.affinity) s *= 1 + 2 * (ctx.affinity.get(d.product.cat) ?? 0);
+  if (d.confidence === "check") s *= 0.5;
+  if (d.qty >= 3 && PERISHABLE.has(d.product.cat)) s *= 0.7;
+  if (ctx.now != null && isEndingSoon(d, ctx.now)) s *= 1.15;
+  return s;
+}
+
+/** Deals worth buying ahead: things that keep, a real discount of 20%+ worth ₪3+, and nothing to check. */
+export function stockUp(items: DealItem[], n = 10): DealItem[] {
+  const pool = items.filter(d => d.verdict === "real" && d.confidence === "ok" && STOCK_UP_CATS.has(d.product.cat) && d.realPct >= 20 && d.realAgorot >= 300);
+  return onePerProduct(pool.sort((a, b) => b.realAgorot - a.realAgorot), n);
+}
+
+/** The biggest real savings in shekels (for the needed quantity), trusted deals only. */
+export function biggestSavings(items: DealItem[], n = 10): DealItem[] {
+  const pool = items.filter(d => d.verdict === "real" && d.confidence === "ok");
+  return onePerProduct(pool.sort((a, b) => b.realAgorot - a.realAgorot), n, 2);
+}
+
+/** Deals on the user's own products (cart, regulars, followed): the most useful first. */
+export function onMine(items: DealItem[], mine: Set<string>, n = 12): DealItem[] {
+  const pool = items.filter(d => mine.has(d.code) && d.verdict !== "notCheapest");
+  return onePerProduct(pool.sort((a, b) => dealScore(b, { mine }) - dealScore(a, { mine })), n, 99);
+}
+
+function onePerProduct(sorted: DealItem[], n: number, perCat = 3): DealItem[] {
+  const seen = new Set<string>(), promos = new Set<string>(), cats = new Map<string, number>();
+  const out: DealItem[] = [];
+  for (const d of sorted) {
+    const pk = `${d.chain}|${d.promo.id}`;
+    if (seen.has(d.code) || promos.has(pk) || (cats.get(d.product.cat) ?? 0) >= perCat) continue;
+    seen.add(d.code); promos.add(pk); cats.set(d.product.cat, (cats.get(d.product.cat) ?? 0) + 1);
+    out.push(d);
+    if (out.length >= n) break;
+  }
   return out;
 }
 
@@ -195,7 +295,7 @@ export function bestOfWeek(items: DealItem[], n = 10, perCat = 3): DealItem[] {
   const seen = new Set<string>(), promos = new Set<string>();
   const cats = new Map<string, number>();
   const out: DealItem[] = [];
-  const pool = items.filter(d => d.verdict === "real" && d.realAgorot >= MIN_BEST_AGOROT);
+  const pool = items.filter(d => d.verdict === "real" && d.confidence === "ok" && d.realAgorot >= MIN_BEST_AGOROT);
   for (const d of sortDeals(pool, "pct", "cheapest")) {
     const pk = `${d.chain}|${d.promo.id}`;
     if (seen.has(d.code) || promos.has(pk) || (cats.get(d.product.cat) ?? 0) >= perCat) continue;
