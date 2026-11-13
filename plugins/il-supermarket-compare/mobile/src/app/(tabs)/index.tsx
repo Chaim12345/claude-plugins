@@ -180,7 +180,8 @@ export default function Home() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
               {mine.map(p => {
                 const pi = priceInfo(p, active);
-                return <MiniProduct key={p.code} p={p} price={pi.lo!} note={catalog.stores[pi.at]?.chain} qty={cart[p.code] ?? 0} onOpen={() => open(p.code)} onAdd={() => setQty(p.code, (cart[p.code] ?? 0) + (p.weighted ? 0.5 : 1))} />;
+                if (pi.lo == null) return null; // no price at the chosen branches (still findable in search)
+                return <MiniProduct key={p.code} p={p} price={pi.lo} note={catalog.stores[pi.at]?.chain} qty={cart[p.code] ?? 0} onOpen={() => open(p.code)} onAdd={() => setQty(p.code, (cart[p.code] ?? 0) + (p.weighted ? 0.5 : 1))} />;
               })}
             </ScrollView>
           </View>

@@ -77,6 +77,13 @@ export function priceInfo(p: Product, active: number[]): PriceInfo {
 
 export type Sort = "pop" | "cheap" | "gap";
 
+/** The first branch among `active` that lists the product without a usable price (none in the file, or one set aside), or -1. */
+export function listedAt(p: Product, active: number[]): number {
+  for (const i of p.meta?.np ?? []) if (active.includes(i)) return i;
+  for (const [i] of p.meta?.odd ?? []) if (active.includes(i)) return i;
+  return -1;
+}
+
 export function search(all: Iterable<Product>, active: number[], q: string, cat: string, sort: Sort, keep?: (p: Product) => boolean): [Product, PriceInfo][] {
   const terms = norm(q).split(" ").filter(Boolean);
   const out: [Product, PriceInfo][] = [];
@@ -85,11 +92,14 @@ export function search(all: Iterable<Product>, active: number[], q: string, cat:
     if (keep && !keep(p)) continue;
     if (terms.length && !terms.every(t => p.key.includes(t))) continue;
     const pi = priceInfo(p, active);
-    if (pi.lo == null) continue;
+    // no usable price at the chosen branches: still listed when one of them lists it (without a price,
+    // or with a price set aside as an error), so nothing in the files is unfindable
+    if (pi.lo == null && listedAt(p, active) < 0) continue;
     out.push([p, pi]);
   }
-  if (sort === "cheap") out.sort((a, b) => a[1].lo! - b[1].lo!);
-  else if (sort === "gap") out.sort((a, b) => b[1].hi! / b[1].lo! - a[1].hi! / a[1].lo!);
+  const priced = (x: [Product, PriceInfo]) => (x[1].lo == null ? 1 : 0);
+  if (sort === "cheap") out.sort((a, b) => priced(a) - priced(b) || (a[1].lo ?? 0) - (b[1].lo ?? 0));
+  else if (sort === "gap") out.sort((a, b) => priced(a) - priced(b) || (b[1].hi ?? 0) / (b[1].lo || 1) - (a[1].hi ?? 0) / (a[1].lo || 1));
   else if (terms.length) out.sort((a, b) => Number(b[0].key.startsWith(terms[0])) - Number(a[0].key.startsWith(terms[0])) || b[1].n - a[1].n);
   return out;
 }

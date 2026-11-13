@@ -16,8 +16,11 @@ const sampleXML = `<Root><ChainID>1</ChainID><Items>
 
 func checkItems(t *testing.T, items []Item) {
 	t.Helper()
-	if len(items) != 2 {
-		t.Fatalf("want 2 items (zero price dropped), got %d: %+v", len(items), items)
+	if len(items) != 3 {
+		t.Fatalf("want 3 items (a zero price is kept, marked NoPrice), got %d: %+v", len(items), items)
+	}
+	if !items[2].NoPrice || items[2].Price != 0 || items[0].NoPrice {
+		t.Errorf("zero price row = %+v", items[2])
 	}
 	if items[0].Code != "7290004131074" || items[0].Name != "חלב 3%" || items[0].Price != 7.2 || items[0].Maker != "תנובה" {
 		t.Errorf("item 0 = %+v", items[0])
@@ -171,7 +174,9 @@ func TestBuildCatalogOutliersAndFresh(t *testing.T) {
 // A chain's own items (short internal codes, weighed items no fresh rule covers) are kept per chain,
 // even in one branch; barcoded goods follow minStores; weighed produce stays with the fresh rules.
 func TestBuildCatalogChainOwnItems(t *testing.T) {
-	mk := func(chain string, items ...Item) StoreData { return StoreData{Store: Store{Chain: chain}, Items: items} }
+	mk := func(chain string, items ...Item) StoreData {
+		return StoreData{Store: Store{Chain: chain}, Items: items}
+	}
 	stores := []StoreData{
 		mk("A", Item{Code: "123", Name: "סלט טונה מעדניה", Price: 39.9, Weighted: true}, Item{Code: "7290000000011", Name: "חלב", Price: 6}, Item{Code: "4455", Name: "לחמניה מהמאפיה", Price: 1.5}),
 		mk("A", Item{Code: "123", Name: "סלט טונה מעדניה", Price: 41.9, Weighted: true}, Item{Code: "7290000000011", Name: "חלב", Price: 6.2}),
@@ -191,7 +196,35 @@ func TestBuildCatalogChainOwnItems(t *testing.T) {
 	if got["7290000000011"] == nil || got["7290000000022"] != nil {
 		t.Errorf("barcoded goods follow minStores")
 	}
-	if got["B:2000001"] != nil {
-		t.Errorf("weighed tomatoes belong to the fresh rule, not a chain item")
+	if got["B:2000001"] == nil {
+		t.Errorf("weighed tomatoes stay findable as chain B's product as well as in the fresh rule")
+	}
+}
+
+// Nothing a price file lists is lost: unpriced rows, rows without a code, and outlier prices are kept.
+func TestBuildCatalogKeepsEveryRow(t *testing.T) {
+	mk := func(chain string, items ...Item) StoreData { return StoreData{Store: Store{Chain: chain}, Items: items} }
+	stores := []StoreData{
+		mk("A", Item{Code: "7290000000033", Name: "יין", NoPrice: true}, Item{Code: "7290000000044", Name: "סבון", Price: 10}, Item{Name: "פריט בלי קוד", Price: 5}),
+		mk("B", Item{Code: "7290000000044", Name: "סבון", Price: 9}, Item{Code: "7290000000055", Name: "קפה", NoPrice: true}, Item{Code: "7290000000055", Name: "קפה", Price: 20}),
+		mk("C", Item{Code: "7290000000044", Name: "סבון", Price: 1000}), // 100x: a typing error
+	}
+	got := map[string][]any{}
+	for _, p := range BuildCatalog(stores, 1, []string{"A", "B", "C"}) {
+		got[p[0].(string)] = p
+	}
+	wine := got["7290000000033"]
+	if wine == nil || wine[7].(*ProductMeta).NP[0] != 0 || wine[4].([]any)[0] != nil {
+		t.Errorf("a product listed only without a price is kept, with no price: %v", wine)
+	}
+	soap := got["7290000000044"]
+	if soap == nil || soap[4].([]any)[2] != nil || soap[7].(*ProductMeta).Odd[0] != [2]int{2, 100000} {
+		t.Errorf("an outlier price is set aside, not lost: %v", soap)
+	}
+	if got["A:n:פריט בלי קוד"] == nil {
+		t.Errorf("a row without a code is kept under its name")
+	}
+	if c := got["7290000000055"]; c == nil || c[4].([]any)[1] != 2000 || c[7] != nil {
+		t.Errorf("a priced row wins over an unpriced row of the same code in the same branch: %v", c)
 	}
 }

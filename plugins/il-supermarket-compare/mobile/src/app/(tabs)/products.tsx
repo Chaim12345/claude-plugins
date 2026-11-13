@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { memo, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { AddBtn, Button, DealBadge, IconBtn, Num, PriceTag, ProductImage, Stepper, T, canScan, useTheme } from "../../components/ui";
-import { bestDeal, dealText, money, search, storeKm, type BestDeal, type PriceInfo, type Sort } from "../../lib/compare";
+import { bestDeal, dealText, listedAt, money, search, storeKm, type BestDeal, type PriceInfo, type Sort } from "../../lib/compare";
 import { FollowButton } from "../../components/WatchBits";
 import { sizeOf, sortByUnitPrice, unitPrice, unitText } from "../../lib/units";
 import { dietCounts } from "../../lib/analysis";
@@ -57,7 +57,7 @@ export default function Products() {
       : undefined;
     const rows = search(products.values(), active, dq, cat, sort === "unit" ? "pop" : sort, keep);
     // cheapest per 100 g / litre / piece: grouped by kind, products with no known size last
-    return sort === "unit" ? sortByUnitPrice(rows, ([p, pi]) => unitPrice(sizeOf(p), pi.lo!)) : rows;
+    return sort === "unit" ? sortByUnitPrice(rows, ([p, pi]) => (pi.lo != null ? unitPrice(sizeOf(p), pi.lo) : null)) : rows;
   }, [products, active, dq, cat, sort, onSale, onlyIL, kosher, diet, deals]);
 
   // The compact list is the default: comparing prices means scanning many items, and a list shows
@@ -149,7 +149,7 @@ export default function Products() {
         ListEmptyComponent={<T style={{ color: t.ink2, textAlign: "center", padding: 30 }}>{kosher ? "רק מוצרים ששמם מציין מהדרין, בד״ץ או גלאט. רוב המוצרים הכשרים לא מציינים זאת בשם, אז הרשימה חלקית." : onSale || onlyIL ? "אין מוצר כזה עם המסננים שבחרתם. נסו להסיר מסנן." : "לא מצאנו מוצר כזה. נסו מילה קצרה יותר, למשל ״קוטג״."}</T>}
         renderItem={({ item: [p, pi] }) => {
           const deal = bestDeal(p, active, deals);
-          const props = { p, pi, deal, dealChain: deal ? catalog.stores[deal.i].chain : "", chain: catalog.stores[pi.at]?.chain ?? "", qty: cart[p.code] ?? 0, setQty, open: () => router.push(`/product/${encodeURIComponent(p.code)}`) };
+          const props = { p, pi, deal, dealChain: deal ? catalog.stores[deal.i].chain : "", chain: catalog.stores[pi.at >= 0 ? pi.at : listedAt(p, active)]?.chain ?? "", qty: cart[p.code] ?? 0, setQty, open: () => router.push(`/product/${encodeURIComponent(p.code)}`) };
           return <View style={{ flex: 1 / cols }}>{view === "list" ? <Row {...props} /> : <Card {...props} />}</View>;
         }}
       />
@@ -166,14 +166,20 @@ export default function Products() {
 
 type ItemProps = { p: Product; pi: PriceInfo; deal: BestDeal | null; dealChain: string; chain: string; qty: number; setQty: (c: string, q: number) => void; open: () => void };
 
-const spread = (pi: PriceInfo) => (pi.hi! > pi.lo! ? Math.round((pi.hi! / pi.lo! - 1) * 100) : 0);
+const spread = (pi: PriceInfo) => (pi.lo != null && pi.hi != null && pi.hi > pi.lo ? Math.round((pi.hi / pi.lo - 1) * 100) : 0);
+
+/** The price, or "no price in the file" for a product a branch lists without one. */
+function Price({ pi }: { pi: PriceInfo }) {
+  const t = useTheme();
+  return pi.lo != null ? <PriceTag agorot={pi.lo} /> : <T style={{ fontSize: 12.5, color: t.ink2, fontWeight: "700" }}>אין מחיר במחירון</T>;
+}
 
 /** One compact line per product: photo, name, where it's cheapest, price and add. */
 const Row = memo(function Row({ p, pi, deal, chain, qty, setQty, open }: ItemProps) {
   const t = useTheme();
-  const unit = unitPrice(sizeOf(p), pi.lo!);
+  const unit = pi.lo != null ? unitPrice(sizeOf(p), pi.lo) : null;
   return (
-    <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={`${p.name}, ${money(pi.lo!)} ₪ ב${chain}. פתיחת המחירים בכל הסניפים`}
+    <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={`${p.name}, ${pi.lo != null ? `${money(pi.lo)} ₪` : "אין מחיר במחירון"} ב${chain}. פתיחת המחירים בכל הסניפים`}
       style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: t.surface, borderRadius: 14, padding: 10, opacity: pressed ? 0.92 : 1 })}>
       <ProductImage p={p} size={64} />
       <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
@@ -186,7 +192,7 @@ const Row = memo(function Row({ p, pi, deal, chain, qty, setQty, open }: ItemPro
         {deal ? <DealBadge text={dealText(deal.promo)} club={deal.promo.club} /> : null}
       </View>
       <View style={{ alignItems: "flex-end", gap: 6 }}>
-        <PriceTag agorot={pi.lo!} />
+        <Price pi={pi} />
         {qty ? <Stepper p={p} qty={qty} onChange={q => setQty(p.code, q)} compact width={104} /> : <AddBtn onPress={() => setQty(p.code, 1)} />}
       </View>
     </Pressable>
@@ -196,7 +202,7 @@ const Row = memo(function Row({ p, pi, deal, chain, qty, setQty, open }: ItemPro
 const Card = memo(function Card({ p, pi, deal, dealChain, chain, qty, setQty, open }: ItemProps) {
   const t = useTheme();
   const gap = spread(pi);
-  const unit = unitPrice(sizeOf(p), pi.lo!);
+  const unit = pi.lo != null ? unitPrice(sizeOf(p), pi.lo) : null;
   return (
     <View style={{ backgroundColor: t.surface, borderRadius: 14, padding: 10, gap: 8, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 1 }}>
       <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={`מחירים בכל הסניפים: ${p.name}`} style={{ gap: 8 }}>
@@ -205,7 +211,7 @@ const Card = memo(function Card({ p, pi, deal, dealChain, chain, qty, setQty, op
       </Pressable>
       <View style={{ position: "absolute", top: 14, right: 14 }}><FollowButton code={p.code} name={p.name} compact /></View>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", gap: 6 }}>
-        <PriceTag agorot={pi.lo!} />
+        <Price pi={pi} />
         <View style={{ flexShrink: 1, alignItems: "flex-start" }}>
           <Text style={{ fontSize: 11.5, color: t.ink2 }}>הכי זול ב</Text>
           <Text numberOfLines={1} style={{ fontSize: 12.5, fontWeight: "700", color: t.ink }}>{chain}</Text>

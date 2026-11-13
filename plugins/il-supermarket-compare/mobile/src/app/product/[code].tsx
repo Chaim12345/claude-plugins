@@ -86,6 +86,12 @@ export default function ProductSheet() {
           </T>
         </View>
       ) : null}
+      {p.meta?.np?.length || p.meta?.odd?.length ? (
+        <View style={{ backgroundColor: t.surface, borderRadius: 14, padding: 12, gap: 4 }}>
+          {p.meta?.np?.length ? <T style={{ fontSize: 13 }}>רשום בלי מחיר במחירון של: {p.meta.np.map(i => `${catalog.stores[i]?.chain} ${catalog.stores[i]?.branch ?? ""}`.trim()).join(", ")}</T> : null}
+          {(p.meta?.odd ?? []).map(([i, a]) => <T key={i} style={{ fontSize: 13, color: t.warn }}>מחיר חריג במחירון של {catalog.stores[i]?.chain}: {money(a)} ₪. כנראה טעות הקלדה או יחידה, ולכן לא נכלל בהשוואה.</T>)}
+        </View>
+      ) : null}
       <View style={{ backgroundColor: t.surface, borderRadius: 14, paddingHorizontal: 12 }}>
         {rows.map(({ s, i, v, sold }, k) => {
           const d = storeKm(catalog, i);

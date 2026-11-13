@@ -3,6 +3,7 @@ package core
 import (
 	"math"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,7 +50,7 @@ type Store struct {
 
 // CatalogVersion is written to Catalog.Version. A stored catalog with an older version is rebuilt
 // from the files already downloaded, instead of being served as "unchanged".
-const CatalogVersion = 4
+const CatalogVersion = 5
 
 type Area struct {
 	Name string  `json:"name"`
@@ -175,6 +176,7 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 	type entry struct {
 		names  []string
 		prices []float64 // NaN = missing
+		np     []int     // stores that list it without a price
 		meta   metaBuilder
 	}
 	sigs := make([]StoreSignals, n)
@@ -191,22 +193,17 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 	}
 	byCode := map[string]*entry{}
 	local := map[string]bool{} // keys of chain-own items
-	freshName := func(name string) bool {
-		for _, fr := range FreshRules {
-			if fr.inc.MatchString(name) && (fr.exc == nil || !fr.exc.MatchString(name)) {
-				return true
-			}
-		}
-		return false
-	}
 	for i, sd := range stores {
 		for _, it := range sd.Items {
 			key := it.Code
 			if len(it.Code) < 7 || it.Weighted {
-				if it.Code == "" || it.Price <= 0 || (it.Weighted && freshName(it.Name)) {
-					continue // the fresh rules compare these across chains
+				// a chain's own item; weighed produce also feeds the fresh rules below, which compare
+				// across chains, but every weighed row stays findable as its chain's product too
+				code := it.Code
+				if code == "" {
+					code = "n:" + it.Name // no code at all: the name is all there is
 				}
-				key = chainOf[i] + ":" + it.Code
+				key = chainOf[i] + ":" + code
 				local[key] = it.Weighted
 			}
 			e := byCode[key]
@@ -217,10 +214,18 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 				}
 				byCode[key] = e
 			}
+			if it.NoPrice {
+				if math.IsNaN(e.prices[i]) && !slices.Contains(e.np, i) {
+					e.np = append(e.np, i)
+					e.names = append(e.names, it.Name)
+				}
+				continue
+			}
 			if math.IsNaN(e.prices[i]) {
 				e.prices[i] = it.Price
 				e.names = append(e.names, it.Name)
 				e.meta.add(i, chainOf[i], it, sigs[i])
+				e.np = slices.DeleteFunc(e.np, func(x int) bool { return x == i })
 			}
 		}
 	}
@@ -237,20 +242,26 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 		if _, ok := local[code]; ok {
 			need = 1
 		}
+		if len(have) == 0 && len(e.np) > 0 {
+			need = 0 // listed only without a price: kept, so it can be found
+		}
 		if len(have) < need {
 			continue
 		}
-		med := median(have)
 		prices := make([]any, n)
-		kept := 0
-		for i, p := range e.prices {
-			if !math.IsNaN(p) && p >= med/4 && p <= med*4 {
-				prices[i] = int(math.Round(p * 100))
-				kept++
+		var odd [][2]int
+		if len(have) > 0 {
+			med := median(have)
+			for i, p := range e.prices {
+				if math.IsNaN(p) {
+					continue
+				}
+				if p >= med/4 && p <= med*4 {
+					prices[i] = int(math.Round(p * 100))
+				} else {
+					odd = append(odd, [2]int{i, int(math.Round(p * 100))})
+				}
 			}
-		}
-		if kept < need {
-			continue
 		}
 		name := e.names[0]
 		for _, s := range e.names {
@@ -260,11 +271,18 @@ func BuildCatalog(stores []StoreData, minStores int, chainKeys []string) [][]any
 		}
 		cat := Categorize(name)
 		meta := e.meta.build(cat)
-		if meta != nil { // signals of a store whose price was dropped as an outlier mean nothing
+		if meta != nil { // signals of a store whose price was set aside as an outlier mean nothing
 			meta.Stale, meta.Chg = keepPriced(meta.Stale, prices), keepPriced(meta.Chg, prices)
-			if meta.empty() {
-				meta = nil
+		}
+		if len(e.np) > 0 || len(odd) > 0 {
+			if meta == nil {
+				meta = &ProductMeta{}
 			}
+			sort.Ints(e.np)
+			meta.NP, meta.Odd = e.np, odd
+		}
+		if meta.empty() {
+			meta = nil
 		}
 		if w, ok := local[code]; ok {
 			weighted, img := 0, any(nil)

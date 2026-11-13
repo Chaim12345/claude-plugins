@@ -37,6 +37,8 @@ export type ProductMeta = {
   raw?: string; // set on the phone by AI curation (curate.ts): the name the price files gave, when it was tidied
   linked?: string[]; // set on the phone by AI curation: other barcodes of the same product, merged into this one
   ai?: Enriched; // set on the phone: the model's record of the product (enrich.ts)
+  np?: number[]; // store indexes that list the product without a price
+  odd?: [number, number][]; // [store index, agorot]: a price 4x off the others, kept out of the comparison
 };
 
 // [code, name, category, weighted (1 = per kg), prices in agorot per store, matched names, image code, metadata]

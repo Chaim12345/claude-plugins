@@ -29,10 +29,15 @@ type ProductMeta struct {
 	Stale [][2]int `json:"stale,omitempty"`
 	// Chg lists [store index, days] where the branch changed the price within ChangedWithinDays.
 	Chg [][2]int `json:"chg,omitempty"`
+	// NP lists store indexes that list the product without a price (zero or unreadable in the file).
+	NP []int `json:"np,omitempty"`
+	// Odd lists [store index, agorot] for a price more than 4x off the product's median: kept here, out
+	// of the comparison, since it is almost always a unit or typing error.
+	Odd [][2]int `json:"odd,omitempty"`
 }
 
 func (m *ProductMeta) empty() bool {
-	return m == nil || (m.Size == nil && m.Maker == "" && !m.IL && len(m.Stale) == 0 && len(m.Chg) == 0)
+	return m == nil || (m.Size == nil && m.Maker == "" && !m.IL && len(m.Stale) == 0 && len(m.Chg) == 0 && len(m.NP) == 0 && len(m.Odd) == 0)
 }
 
 const (

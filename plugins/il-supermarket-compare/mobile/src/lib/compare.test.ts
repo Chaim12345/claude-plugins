@@ -60,3 +60,14 @@ test("promotion notes: per store and product, ended ones hidden, none for old ca
   assert.deepEqual(notesFor(c, 1, "111", now), []);
   assert.deepEqual(notesFor(base, 0, "111", now), []);
 });
+
+
+test("search keeps products a chosen branch lists without a usable price, after the priced ones", async () => {
+  const { search, listedAt } = await import("./compare.ts");
+  const mk = (code: string, prices: (number | null)[], meta: object | null = null) => ({ code, name: `מוצר ${code}`, cat: "x", weighted: false, prices, picks: null, img: null, key: `מוצר ${code}`, meta });
+  const ps = [mk("a", [null, null], { np: [1] }), mk("b", [500, 400]), mk("c", [null, null], { odd: [[0, 99999]] }), mk("d", [null, null], { np: [0] })];
+  assert.deepEqual(search(ps as never, [0, 1], "", "all", "cheap").map(([p]) => p.code), ["b", "a", "c", "d"]);
+  assert.deepEqual(search(ps as never, [1], "", "all", "cheap").map(([p]) => p.code), ["b", "a"]); // d is listed only at a branch turned off
+  assert.equal(listedAt(ps[0] as never, [0, 1]), 1);
+  assert.equal(listedAt(ps[1] as never, [0, 1]), -1);
+});

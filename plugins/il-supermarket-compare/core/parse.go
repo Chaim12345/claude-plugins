@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,6 +30,8 @@ type Item struct {
 	Country string `json:"country,omitempty"` // "IL", "ישראל", "IT"...
 	Updated string `json:"updated,omitempty"` // when this branch last changed the price
 	Sold    string `json:"sold,omitempty"`    // when this branch last sold the item
+	// NoPrice: listed with a zero, empty or unreadable price. Kept, so no listed product is lost.
+	NoPrice bool `json:"noPrice,omitempty"`
 }
 
 // StoreRow is one branch from a chain's Stores file.
@@ -156,9 +159,10 @@ func eachRecord(r io.Reader, tag string, fn func(map[string]string)) error {
 func ParsePriceFile(r io.Reader) ([]Item, error) {
 	items := make([]Item, 0, 8000)
 	err := eachRecord(r, "item", func(m map[string]string) {
-		price, err := strconv.ParseFloat(m["itemprice"], 64)
-		if err != nil || price <= 0 {
-			return
+		price, err := strconv.ParseFloat(strings.TrimSpace(m["itemprice"]), 64)
+		noPrice := err != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0)
+		if noPrice {
+			price = 0
 		}
 		maker := m["manufacturername"]
 		if maker == "" {
@@ -180,6 +184,7 @@ func ParsePriceFile(r io.Reader) ([]Item, error) {
 			Country:  m["manufacturecountry"],
 			Updated:  first(m["priceupdatetime"], m["priceupdatedate"]),
 			Sold:     m["lastsaledatetime"],
+			NoPrice:  noPrice,
 		})
 	})
 	return items, err
