@@ -33,15 +33,19 @@ type Place struct {
 
 // State is everything the user set, saved in state.json.
 type State struct {
-	Place  *Place             `json:"place,omitempty"`
-	Cart   map[string]float64 `json:"cart"`
-	Off    []string           `json:"off"`  // store ids left out of the comparison
-	Club   shop.Club          `json:"club"` // chains whose club card the user has
-	Watch  []string           `json:"watch"`
-	Freq   map[string]int     `json:"freq"` // times each product went into the cart
-	AI     ai.Config          `json:"ai"`
-	Usage  Usage              `json:"usage"`
-	Images bool               `json:"images"` // show product photos
+	Place   *Place             `json:"place,omitempty"`
+	Cart    map[string]float64 `json:"cart"`
+	Off     []string           `json:"off"`  // store ids left out of the comparison
+	Club    shop.Club          `json:"club"` // chains whose club card the user has
+	Watch   []string           `json:"watch"`
+	Freq    map[string]int     `json:"freq"` // times each product went into the cart
+	AI      ai.Config          `json:"ai"`
+	Usage   Usage              `json:"usage"`
+	Images  bool               `json:"images"` // show product photos
+	Lists   []List             `json:"lists"`
+	Checked map[string]bool    `json:"checked"` // in-store checklist ticks
+	Changes []Change           `json:"changes"` // price moves, last 30 days
+	Notices []Notice           `json:"notices"` // watched products that got cheaper
 }
 
 // Usage counts today's classification requests against the daily cap.
@@ -88,6 +92,8 @@ type Engine struct {
 	aiRun    *aiStatus
 	aiStop   context.CancelFunc
 	building bool
+	loaded   chan struct{} // closed once the saved catalog has been read at start-up
+	log      ring
 
 	emit func(Event)
 }
@@ -107,7 +113,7 @@ func Open(dir string) (*Engine, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	e := &Engine{dir: dir, cl: ai.DefaultClient, emit: func(Event) {}}
+	e := &Engine{dir: dir, cl: ai.DefaultClient, emit: func(Event) {}, loaded: make(chan struct{})}
 	e.st = State{Cart: map[string]float64{}, Club: shop.Club{}, Freq: map[string]int{}, AI: ai.DefaultConfig(), Images: true}
 	if b, err := os.ReadFile(filepath.Join(dir, "state.json")); err == nil {
 		json.Unmarshal(b, &e.st)
@@ -126,7 +132,12 @@ func Open(dir string) (*Engine, error) {
 		return nil, err
 	}
 	e.store, e.verdicts = st, ai.OpenVerdicts(dir)
-	go func() { defer safe("load catalog"); e.loadCatalog(false) }()
+	go func() {
+		defer close(e.loaded)
+		defer safe("load catalog")
+		e.loadCatalog(false)
+	}()
+	e.logf("app", "start")
 	return e, nil
 }
 
@@ -169,7 +180,14 @@ func (e *Engine) loadCatalog(afterSync bool) {
 	e.mu.Lock()
 	e.building = false
 	if err == nil {
+		old := e.ix
 		e.ix, e.deals, e.dealsKey = ix, nil, ""
+		if afterSync && old != nil && old.Cat.GeneratedAt != c.GeneratedAt {
+			e.diff(old, ix) // which prices moved, and notices for watched products
+			e.save()
+		}
+	} else {
+		e.logf("catalog", "שגיאה: %v", err)
 	}
 	e.mu.Unlock()
 	e.send(Event{Type: "catalog"})
@@ -263,6 +281,9 @@ func (e *Engine) Sync() {
 }
 
 func (e *Engine) syncNow(ctx context.Context, p Place) error {
+	t0 := time.Now()
+	e.logf("sync", "start: %s (%.3f, %.3f) r=%.0f", p.Name, p.Lat, p.Lon, p.Radius)
+	e.discover(ctx)
 	d, err := core.LoadDirectory(e.dir)
 	if err != nil {
 		return err
@@ -274,6 +295,9 @@ func (e *Engine) syncNow(ctx context.Context, p Place) error {
 	cfg := core.ConfigFor(near, p.Name, p.Lat, p.Lon)
 	parsed := 0
 	s := &core.Syncer{DataDir: e.dir, OnEvent: func(ev core.Event) {
+		if (ev.Phase == "skip" || ev.Phase == "alt") && ev.Message != "" {
+			e.logf("portal", "%s %s: %s", ev.Phase, ev.Store, ev.Message) // a branch's file failed, or another listing was used
+		}
 		msg := ""
 		switch ev.Phase {
 		case "download", "cached", "skip":
@@ -292,6 +316,11 @@ func (e *Engine) syncNow(ctx context.Context, p Place) error {
 		e.send(Event{Type: "sync", Msg: msg})
 	}}
 	_, err = s.Sync(ctx, cfg)
+	if err != nil {
+		e.logf("sync", "נכשל: %v", err)
+	} else {
+		e.logf("sync", "הסתיים: %d סניפים, %.1f שניות", len(near), time.Since(t0).Seconds())
+	}
 	return err
 }
 
@@ -332,7 +361,7 @@ func (e *Engine) SetQty(code string, q float64) int {
 
 func (e *Engine) ClearCart() {
 	e.mu.Lock()
-	e.st.Cart = map[string]float64{}
+	e.st.Cart, e.st.Checked = map[string]float64{}, nil
 	e.save()
 	e.mu.Unlock()
 }
@@ -384,6 +413,7 @@ func itoa(n int) string {
 // RefreshNow syncs the saved place and waits for it (the daily background job), then runs the AI
 // delta. Returns "" or the error.
 func (e *Engine) RefreshNow(timeoutSec int) string {
+	<-e.loaded // the saved catalog first: the new one is compared with it
 	e.Sync()
 	deadline := time.Now().Add(time.Duration(timeoutSec) * time.Second)
 	for time.Now().Before(deadline) {

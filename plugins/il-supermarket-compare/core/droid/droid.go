@@ -187,3 +187,37 @@ func ClearAI()   { eng().ClearAI() }
 // RefreshNow is the background job: sync the saved place, wait for it, then the AI work. Blocks
 // up to the timeout; returns "" or an error. Called by WorkManager.
 func RefreshNow(timeoutSec int) string { return eng().RefreshNow(timeoutSec) }
+
+// ---- features
+
+func Changes() (out string)  { defer guard(&out); return js(eng().Changes()) }
+func Watched() (out string)  { defer guard(&out); return js(eng().Watched()) }
+func Lists() (out string)    { defer guard(&out); return js(eng().Lists()) }
+func Analysis() (out string) { defer guard(&out); return js(eng().Analysis()) }
+func LogText() (out string)  { defer guard(&out); return eng().LogText() }
+func CartText() (out string) { defer guard(&out); return eng().CartText() }
+
+// Shop is the in-store checklist for a branch ("" = the cheapest for the cart).
+func Shop(storeID string) (out string) { defer guard(&out); return js(eng().Shop(storeID)) }
+func SetChecked(code string, on bool)  { eng().SetChecked(code, on) }
+
+func SaveList(name string)           { eng().SaveList(name) }
+func LoadList(id string, merge bool) { eng().LoadList(id, merge) }
+func DeleteList(id string)           { eng().DeleteList(id) }
+
+// ParseList matches a pasted shopping list to products: JSON [{line,qty,code,name,price,alts}].
+func ParseList(text string) (out string) { defer guard(&out); return js(eng().ParseList(text)) }
+
+// AddMany adds {"code":qty,...} to the cart.
+func AddMany(itemsJSON string) {
+	var m map[string]float64
+	if json.Unmarshal([]byte(itemsJSON), &m) == nil {
+		eng().AddMany(m)
+	}
+}
+
+// Lookup: the product code for a scanned barcode, or "".
+func Lookup(barcode string) string { return eng().Lookup(barcode) }
+
+// TakeNotices: watched products that got cheaper, not shown yet (JSON list); the background job posts them.
+func TakeNotices() (out string) { defer guard(&out); return js(eng().TakeNotices()) }
