@@ -33,7 +33,9 @@ import kotlinx.coroutines.launch
 fun <T> engineState(vararg keys: Any?, load: suspend () -> T): T? {
     val tick by Bus.tick.collectAsState()
     var v by remember { mutableStateOf<T?>(null) }
-    LaunchedEffect(tick, *keys) { v = load() }
+    // a failed read (Go caught a panic and answered with an error object) leaves the last value: a
+    // JSONException here would otherwise escape the effect and kill the app
+    LaunchedEffect(tick, *keys) { runCatching { load() }.onSuccess { v = it }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it } }
     return v
 }
 
@@ -109,7 +111,8 @@ fun HomeScreen(nav: NavHostController) {
 fun DealRow(nav: NavHostController, title: String, sub: String, deals: List<DealView>) {
     val scope = rememberCoroutineScope()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SectionHead(title, sub, "הכל") { nav.navigate("deals") }
+        // on the deals tab itself "all" would stack a second copy of the screen
+        SectionHead(title, sub, "הכל") { nav.navigate("deals") { launchSingleTop = true } }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(deals, key = { it.code + it.where }) { d ->
                 DealCard(d, 180.dp, { nav.openProduct(d.code) }) { scope.launch { Go.setQty(d.code, (d.inCart + d.qty)); Bus.poke() } }
@@ -140,23 +143,31 @@ fun ProductsScreen(nav: NavHostController, startCat: String) {
     val list = rememberLazyListState()
 
     LaunchedEffect(q) { delay(if (q.isEmpty()) 0 else 180); dq = q } // search when typing pauses
+    // gen changes whenever the rows are re-read: a page that was requested before is then stale and dropped
+    var gen by remember { mutableIntStateOf(0) }
+    var filterKey by remember { mutableStateOf("") }
     LaunchedEffect(dq, cat, sort, onSale, il, diet, tick) {
-        val r = Go.search(dq, cat, sort, onSale, il, diet, 0, 40)
+        val key = "$dq|$cat|$sort|$onSale|$il|$diet"
+        // an event only refreshes what is loaded; a new search or filter starts again at 40 rows
+        val limit = if (key == filterKey) maxOf(40, rows.size) else 40
+        val r = Go.search(dq, cat, sort, onSale, il, diet, 0, limit)
+        if (key != filterKey) { filterKey = key; runCatching { list.scrollToItem(0) } }
+        gen++
         rows = r.items; total = r.total; diets = r.diets
     }
     // next page when the end of the list comes into view
     val nearEnd by remember { derivedStateOf { list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 } }
     LaunchedEffect(nearEnd) {
         if (nearEnd >= rows.size - 6 && rows.size < total) {
+            val g = gen
             val more = Go.search(dq, cat, sort, onSale, il, diet, rows.size, 40).items
-            rows = rows + more
+            if (g == gen) rows = (rows + more).distinctBy { it.code } // distinct: a duplicate key would crash the list
         }
     }
     val update: (String, Double) -> Unit = { code, qty ->
         scope.launch {
             Go.setQty(code, qty)
-            rows = Go.search(dq, cat, sort, onSale, il, diet, 0, maxOf(40, rows.size)).items // the loaded rows, re-read
-            Bus.poke()
+            Bus.poke() // the effect above re-reads the loaded rows
         }
     }
 
@@ -376,14 +387,25 @@ fun DealsScreen(nav: NavHostController) {
     var view by remember { mutableStateOf<DealsView?>(null) }
     var rows by remember { mutableStateOf<List<DealView>>(emptyList()) }
     val list = rememberLazyListState()
+    var gen by remember { mutableIntStateOf(0) } // changes on every re-read: an older page request is dropped
+    var filterKey by remember { mutableStateOf("") }
     LaunchedEffect(cat, chain, onlyReal, sort, tick) {
-        val v = Go.deals(cat, chain, onlyReal, false, sort, 0, 30)
+        val key = "$cat|$chain|$onlyReal|$sort"
+        val limit = if (key == filterKey) maxOf(30, rows.size) else 30 // an event refreshes what is loaded
+        val v = Go.deals(cat, chain, onlyReal, false, sort, 0, limit)
+        if (key != filterKey) { filterKey = key; runCatching { list.scrollToItem(0) } }
+        gen++
         view = v; rows = v.items
     }
-    val last by remember { derivedStateOf { list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 } }
-    LaunchedEffect(last) {
+    // the last visible item index is a list position (headers and two-card rows), not a deal count
+    val nearEnd by remember { derivedStateOf { val i = list.layoutInfo; (i.visibleItemsInfo.lastOrNull()?.index ?: 0) >= i.totalItemsCount - 3 } }
+    LaunchedEffect(nearEnd, rows.size) {
         val v = view ?: return@LaunchedEffect
-        if (last >= rows.size && rows.size < v.total) rows = rows + Go.deals(cat, chain, onlyReal, false, sort, rows.size, 30).items
+        if (nearEnd && rows.size < v.total) {
+            val g = gen
+            val more = Go.deals(cat, chain, onlyReal, false, sort, rows.size, 30).items
+            if (g == gen && more.isNotEmpty()) rows = (rows + more).distinctBy { it.code + "|" + it.where }
+        }
     }
     val v = view
     Column(Modifier.fillMaxSize()) {

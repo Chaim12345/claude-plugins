@@ -52,16 +52,26 @@ fun shareText(ctx: Context, text: String, title: String = "שיתוף") {
 
 private const val CHANNEL = "prices"
 
+private fun canNotify(ctx: Context) =
+    android.os.Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+
+/** Takes the engine's unread notices and posts them. Without the permission nothing is taken, so
+ *  they are still there once the user allows notifications (taking marks them read). */
+fun takeAndPostNotices(ctx: Context) {
+    if (!canNotify(ctx)) return
+    val json = runCatching { il.salzol.core.droid.Droid.takeNotices() }.getOrNull() ?: return
+    postNotices(ctx, json)
+}
+
 /** Posts the engine's notices (watched products that got cheaper). */
 fun postNotices(ctx: Context, json: String) {
     val a = runCatching { org.json.JSONArray(json) }.getOrNull() ?: return
-    if (a.length() == 0) return
-    if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+    if (a.length() == 0 || !canNotify(ctx)) return
     val nm = ctx.getSystemService(NotificationManager::class.java)
     nm.createNotificationChannel(NotificationChannel(CHANNEL, "ירידות מחיר", NotificationManager.IMPORTANCE_DEFAULT))
     for (k in 0 until a.length()) {
         val n = Notice(a.getJSONObject(k))
-        val open = PendingIntent.getActivity(ctx, k, Intent(ctx, MainActivity::class.java).putExtra("product", n.code).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        val open = PendingIntent.getActivity(ctx, n.code.hashCode(), Intent(ctx, MainActivity::class.java).putExtra("product", n.code).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val b = NotificationCompat.Builder(ctx, CHANNEL).setSmallIcon(android.R.drawable.stat_notify_more).setContentTitle(n.title).setContentText(n.body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(n.body)).setContentIntent(open).setAutoCancel(true).build()
@@ -251,7 +261,8 @@ fun PasteScreen(nav: NavHostController) {
             }
             if (matches.any { it.code.isNotEmpty() }) item {
                 Button(onClick = {
-                    val add = matches.indices.filter { on[it] == true && chosen[it] != null }.associate { chosen[it]!! to matches[it].qty }
+                    val add = matches.indices.filter { on[it] == true && chosen[it] != null }
+                        .groupBy({ chosen[it]!! }, { matches[it].qty }).mapValues { (_, q) -> q.sum() } // two lines for one product add up
                     scope.launch { Go.addMany(add); Bus.poke(); nav.navigate("cart") }
                 }, Modifier.fillMaxWidth().height(50.dp)) { Text("הוספה לסל (${matches.indices.count { on[it] == true }})", fontWeight = FontWeight.Bold) }
             }

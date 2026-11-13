@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -29,17 +30,35 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // automation: `am start -n il.salzol.go/.MainActivity --ed lat 32.08 --ed lon 34.81 --es place "..."` picks a place
-        intent?.let { i ->
-            if (i.hasExtra("lat") && i.hasExtra("lon")) {
-                il.salzol.core.droid.Droid.setPlace(i.getStringExtra("place") ?: "בדיקה", i.getDoubleExtra("lat", 0.0), i.getDoubleExtra("lon", 0.0), i.getDoubleExtra("radius", 4.0))
-            }
-            i.getStringExtra("tab")?.let { startTab = it }
-            i.getStringExtra("product")?.let { startTab = "product/" + android.net.Uri.encode(it) } // from a notification
-        }
+        // only a fresh start reads the extras: a rotation recreates the activity with the same intent
+        if (savedInstanceState == null) handle(intent)
         setContent { SalzolTheme { AppRoot() } }
     }
+
+    // a notification tapped while the app is already open
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handle(intent)
+    }
+
+    private fun handle(i: android.content.Intent?) {
+        i ?: return
+        // automation: `am start -n il.salzol.go/.MainActivity --ed lat 32.08 --ed lon 34.81 --es place "..."` picks a
+        // place. The activity is exported (it is the launcher), so the values are checked: Israel only.
+        if (i.hasExtra("lat") && i.hasExtra("lon")) {
+            val lat = i.getDoubleExtra("lat", 0.0); val lon = i.getDoubleExtra("lon", 0.0)
+            if (lat in 29.0..33.6 && lon in 34.0..36.0) {
+                il.salzol.core.droid.Droid.setPlace((i.getStringExtra("place") ?: "בדיקה").take(60), lat, lon, i.getDoubleExtra("radius", 4.0).coerceIn(1.0, 25.0))
+            }
+        }
+        i.getStringExtra("tab")?.takeIf { t -> tabs.any { it.route == t } || t in extraRoutes }?.let { startTab = it }
+        i.getStringExtra("product")?.takeIf { it.length in 1..40 }?.let { startTab = "product/" + android.net.Uri.encode(it) } // from a notification
+    }
 }
+
+/** Screens that automation may open by name (anything else in the "tab" extra is ignored). */
+private val extraRoutes = setOf("location", "stores", "ai", "catalog", "changes", "watch", "lists", "paste", "analysis", "log", "shop")
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
@@ -51,8 +70,8 @@ private val tabs = listOf(
     Tab("more", "עוד", Icons.Outlined.MoreHoriz),
 )
 
-/** A tab to open on launch (automation and notifications): "deals", "cart", ... */
-var startTab: String? = null
+/** A screen to open (automation and notifications): "deals", "cart", ... State, so a new intent opens it too. */
+var startTab by mutableStateOf<String?>(null)
 
 /** Opens a product sheet from anywhere. */
 fun NavHostController.openProduct(code: String) = navigate("product/" + android.net.Uri.encode(code))
@@ -62,21 +81,31 @@ fun AppRoot() {
     val nav = rememberNavController()
     val tick by Bus.tick.collectAsState()
     var status by remember { mutableStateOf<StatusView?>(null) }
-    val evType by Bus.type.collectAsState()
     val appCtx = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(tick) {
-        status = Go.status()
-        if (evType == "catalog") postNotices(appCtx, Go.io { il.salzol.core.droid.Droid.takeNotices() })
+        runCatching { status = Go.status() }
+        // every event, not only "catalog": Go sends "catalog" and then "sync" right after, so the
+        // type seen here is usually the second one
+        Go.io { takeAndPostNotices(appCtx) }
     }
     val entry by nav.currentBackStackEntryAsState()
-    val route = entry?.destination?.route ?: "home"
+    // "products?cat={cat}" is the products tab with a category: the same tab for the bar
+    val route = (entry?.destination?.route ?: "home").substringBefore('?')
     val st = status
     // the first screen is decided once, when the status first arrives (a NavHost must not change it later)
     var start by remember { mutableStateOf<String?>(null) }
     if (start == null && st != null) start = if (st.place == null) "location" else "home"
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    var crash by remember { mutableStateOf(takeCrashReport(ctx)) }
-    LaunchedEffect(st != null) { startTab?.let { t -> if (st?.place != null) { nav.navigate(t); startTab = null } } }
+    // saved: the report is read from disk once (reading deletes it), so a rotation must not lose it
+    var crash by rememberSaveable { mutableStateOf(takeCrashReport(ctx)) }
+    // the NavHost exists only once the first screen is known and no crash report is showing
+    LaunchedEffect(startTab, st != null, start != null, crash.isEmpty()) {
+        val t = startTab
+        if (t != null && st?.place != null && start != null && crash.isEmpty()) {
+            runCatching { nav.navigate(t) }
+            startTab = null
+        }
+    }
 
     Scaffold(
         containerColor = P.bg,
@@ -97,7 +126,9 @@ fun AppRoot() {
             }
         },
     ) { pad ->
-        Box(Modifier.fillMaxSize().background(P.bg).padding(pad)) {
+        // edge-to-edge: the window no longer resizes for the keyboard, so the content makes room for it
+        // (consumeWindowInsets: the bar insets in pad are not added a second time)
+        Box(Modifier.fillMaxSize().background(P.bg).padding(pad).consumeWindowInsets(pad).imePadding()) {
             if (crash.isNotEmpty()) CrashScreen(crash) { crash = "" }
             else if (st == null || start == null) Loading("טוען…")
             else NavHost(nav, startDestination = start!!) {

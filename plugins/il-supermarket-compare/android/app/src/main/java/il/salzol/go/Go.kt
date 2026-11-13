@@ -13,6 +13,9 @@ import org.json.JSONObject
 object Go {
     suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }
 
+    /** A list from Go; when Go caught a panic it answers with an {"error":..} object instead: no rows. */
+    private fun arr(s: String) = runCatching { JSONArray(s) }.getOrDefault(JSONArray())
+
     suspend fun status() = io { StatusView(JSONObject(Droid.status())) }
     suspend fun home() = io { HomeView(JSONObject(Droid.home())) }
     suspend fun product(code: String) = io { ProductView(JSONObject(Droid.product(code))) }
@@ -41,8 +44,8 @@ object Go {
     suspend fun geocode(q: String) = io { JSONObject(Droid.geocode(q)) }
 
     suspend fun changes() = io { ChangesView(JSONObject(Droid.changes())) }
-    suspend fun watched() = io { JSONArray(Droid.watched()).let { a -> (0 until a.length()).map { ItemView(a.getJSONObject(it)) } } }
-    suspend fun lists() = io { JSONArray(Droid.lists()).let { a -> (0 until a.length()).map { ListView(a.getJSONObject(it)) } } }
+    suspend fun watched() = io { arr(Droid.watched()).let { a -> (0 until a.length()).map { ItemView(a.getJSONObject(it)) } } }
+    suspend fun lists() = io { arr(Droid.lists()).let { a -> (0 until a.length()).map { ListView(a.getJSONObject(it)) } } }
     suspend fun analysis() = io { AnalysisView(JSONObject(Droid.analysis())) }
     suspend fun logText() = io { Droid.logText() }
     suspend fun cartText() = io { Droid.cartText() }
@@ -51,7 +54,7 @@ object Go {
     suspend fun saveList(name: String) = io { Droid.saveList(name) }
     suspend fun loadList(id: String, merge: Boolean) = io { Droid.loadList(id, merge) }
     suspend fun deleteList(id: String) = io { Droid.deleteList(id) }
-    suspend fun parseList(text: String) = io { JSONArray(Droid.parseList(text)).let { a -> (0 until a.length()).map { ListMatch(a.getJSONObject(it)) } } }
+    suspend fun parseList(text: String) = io { arr(Droid.parseList(text)).let { a -> (0 until a.length()).map { ListMatch(a.getJSONObject(it)) } } }
     suspend fun addMany(items: Map<String, Double>) = io { Droid.addMany(JSONObject(items as Map<*, *>).toString()) }
     suspend fun lookup(barcode: String) = io { Droid.lookup(barcode) }
 

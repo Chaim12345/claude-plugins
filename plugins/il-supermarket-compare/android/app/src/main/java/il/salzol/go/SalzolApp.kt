@@ -13,6 +13,7 @@ import il.salzol.core.droid.Listener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -31,7 +32,11 @@ class SalzolApp : Application() {
             }
             prev?.uncaughtException(t, e)
         }
-        Droid.open(filesDir.absolutePath)
+        // Open fails (unwritable folder, unreadable AI records): say so on the crash screen instead of
+        // dying here on every launch, which no one could recover from
+        runCatching { Droid.open(filesDir.absolutePath) }.onFailure { e ->
+            runCatching { java.io.File(filesDir, "crash.txt").appendText("${java.util.Date()} הפעלת המנוע נכשלה: ${e.message}\n") }
+        }
         Droid.setListener(object : Listener {
             override fun onEvent(eventJSON: String) = Bus.event(eventJSON)
         })
@@ -56,18 +61,19 @@ object Bus {
         val o = runCatching { JSONObject(json) }.getOrNull() ?: return
         _type.value = o.optString("type")
         _msg.value = o.optString("msg")
-        _tick.value = _tick.value + 1
+        _tick.update { it + 1 } // events come from Go threads: an atomic increment
     }
 
-    fun poke() { _tick.value = _tick.value + 1 }
+    fun poke() { _tick.update { it + 1 } }
 }
 
 /** The daily refresh: the Go engine syncs the saved place, then runs the AI delta. */
 class RefreshWorker(ctx: android.content.Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        Droid.open(applicationContext.filesDir.absolutePath)
+        val opened = runCatching { Droid.open(applicationContext.filesDir.absolutePath) }
+        if (opened.isFailure) return@withContext Result.failure()
         val err = Droid.refreshNow(8 * 60)
-        postNotices(applicationContext, Droid.takeNotices()) // watched products that got cheaper
+        takeAndPostNotices(applicationContext) // watched products that got cheaper
         if (err.isEmpty()) Result.success() else Result.retry()
     }
 }

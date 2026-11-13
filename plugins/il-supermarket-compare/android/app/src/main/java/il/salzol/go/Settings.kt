@@ -37,6 +37,7 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
 import il.salzol.go.ui.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 @Composable
@@ -117,10 +118,14 @@ private fun lastLocation(ctx: Context): android.location.Location? {
 
 @SuppressLint("MissingPermission")
 private fun currentLocation(ctx: Context, done: (android.location.Location?) -> Unit) {
-    val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    val provider = if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) LocationManager.NETWORK_PROVIDER else LocationManager.GPS_PROVIDER
-    if (android.os.Build.VERSION.SDK_INT >= 30) lm.getCurrentLocation(provider, null, ctx.mainExecutor) { done(it ?: lastLocation(ctx)) }
-    else done(lastLocation(ctx))
+    try {
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val provider = if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) LocationManager.NETWORK_PROVIDER else LocationManager.GPS_PROVIDER
+        if (android.os.Build.VERSION.SDK_INT >= 30) lm.getCurrentLocation(provider, null, ctx.mainExecutor) { done(it ?: lastLocation(ctx)) }
+        else done(lastLocation(ctx))
+    } catch (e: Exception) { // only coarse permission with the network provider off, or no location service
+        done(runCatching { lastLocation(ctx) }.getOrNull())
+    }
 }
 
 @Composable
@@ -132,7 +137,10 @@ fun LocationScreen(nav: NavHostController) {
     var radius by remember { mutableDoubleStateOf(4.0) }
     var msg by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    LaunchedEffect(st?.place) { st?.place?.let { radius = it.radius } }
+    // keyed on the saved radius itself: the status object is rebuilt on every engine event, and
+    // keying on it would reset the radius the user is choosing
+    val savedRadius = st?.place?.radius
+    LaunchedEffect(savedRadius) { savedRadius?.let { radius = it } }
 
     fun choose(name: String, lat: Double, lon: Double) {
         scope.launch {
@@ -224,9 +232,11 @@ fun AIScreen(nav: NavHostController) {
     var testing by remember { mutableStateOf(false) }
     var models by remember { mutableStateOf<List<String>>(emptyList()) }
     val c = cfg
+    // one save at a time, in the order of the keystrokes: parallel calls could store an older value last
+    val saveLock = remember { kotlinx.coroutines.sync.Mutex() }
     fun save(f: (JSONObject) -> Unit) {
         val n = JSONObject(c.toString()); f(n); cfg = n
-        scope.launch { Go.setAI(n); Bus.poke() }
+        scope.launch { saveLock.withLock { Go.setAI(n) }; Bus.poke() }
     }
     Column(Modifier.fillMaxSize()) {
         Header(nav, "בינה מלאכותית")
