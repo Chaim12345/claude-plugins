@@ -328,3 +328,77 @@ fun LogScreen(nav: NavHostController) {
         }
     }
 }
+
+@Composable
+fun CatalogScreen(nav: NavHostController) {
+    val v = engineState { Go.catalog() }
+    val scope = rememberCoroutineScope()
+    var confirmClear by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize()) {
+        Header(nav, "כלי קטלוג")
+        if (v == null) { Loading("טוען…") } else {
+            val busy = v.run?.live == true
+            LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                item {
+                    Panel {
+                        Hint("המחירונים מלאים בשמות משובשים ובאותו מוצר תחת כמה ברקודים. המודל מציע ניקוי ואיחוד; כל שינוי אפשר לאשר או לבטל, והמחירונים עצמם לא משתנים.")
+                        if (!v.hasAI) Hint("כדי להשתמש בכלים צריך להפעיל בינה מלאכותית ולהזין מפתח.", P.bad)
+                        v.run?.let { r ->
+                            if (r.live) Text(runLabel(r.kind) + ": ${r.done}/${r.of}", color = P.brand, fontWeight = FontWeight.Bold)
+                            else if (r.err.isNotEmpty()) Hint("נעצר: ${r.err}", P.bad)
+                        }
+                        Hint("נשארו היום ${v.requestsLeft} בקשות מהמכסה.")
+                    }
+                }
+                item {
+                    Panel {
+                        Text("ניקוי שמות", fontWeight = FontWeight.Bold, color = P.ink)
+                        Hint("${v.names} שמות נוקו · ${"%,d".format(v.nameTodo)} שמות משובשים מחכים לבדיקה (מספרים צמודים למילים, ניקוד, רווחים כפולים).")
+                        if (busy) OutlinedButton(onClick = { scope.launch { Go.stopAI() } }) { Text("עצירה") }
+                        else Button(onClick = { scope.launch { Go.runNames(); Bus.poke() } }, enabled = v.hasAI && v.nameTodo > 0 && v.requestsLeft > 0) { Text("לנקות שמות") }
+                    }
+                }
+                item {
+                    Panel {
+                        Text("איחוד כפילויות", fontWeight = FontWeight.Bold, color = P.ink)
+                        Hint("${v.links} מוצרים אוחדו · ${v.waiting} ממתינים לאישור · ${"%,d".format(v.linkTodo)} זוגות חשודים לבדיקה (אותו גודל אריזה, אף סניף לא מוכר את שניהם).")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("לאחד אוטומטית בלי לחכות לאישור", Modifier.weight(1f), color = P.ink)
+                            Switch(v.autoLink, { on -> scope.launch { Go.setAutoLink(on); Bus.poke() } })
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (!busy) Button(onClick = { scope.launch { Go.runLinks(); Bus.poke() } }, enabled = v.hasAI && v.linkTodo > 0 && v.requestsLeft > 0) { Text("לחפש כפילויות") }
+                            if (v.waiting > 0) OutlinedButton(onClick = { scope.launch { Go.approveAllLinks(); Bus.poke() } }) { Text("לאשר הכל (${v.waiting})") }
+                        }
+                    }
+                }
+                if (v.rows.isNotEmpty()) item { SectionHead("שינויים של המודל", "${v.rows.size}") }
+                items(v.rows, key = { it.kind + it.key }) { r ->
+                    Panel {
+                        Text(if (r.kind == "link") "איחוד ברקודים" else "שם מנוקה", fontSize = 12.sp, color = P.ink2)
+                        Text(r.title, fontWeight = FontWeight.Bold, color = P.ink)
+                        Text(if (r.kind == "link") "עם: ${r.before}" else "במחירון: ${r.before}", fontSize = 13.sp, color = P.ink2)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            when {
+                                r.kind == "link" && r.wait -> {
+                                    Button(onClick = { scope.launch { Go.reviewLink(r.key, "approve"); Bus.poke() } }) { Text("לאחד") }
+                                    OutlinedButton(onClick = { scope.launch { Go.reviewLink(r.key, "reject"); Bus.poke() } }) { Text("לא אותו מוצר") }
+                                }
+                                r.kind == "link" && r.active -> OutlinedButton(onClick = { scope.launch { Go.reviewLink(r.key, "reject"); Bus.poke() } }) { Text("ביטול האיחוד") }
+                                r.kind == "link" -> OutlinedButton(onClick = { scope.launch { Go.reviewLink(r.key, "approve"); Bus.poke() } }) { Text("לאחד שוב") }
+                                r.active -> OutlinedButton(onClick = { scope.launch { Go.reviewName(r.key, "undo"); Bus.poke() } }) { Text("לבטל") }
+                                else -> OutlinedButton(onClick = { scope.launch { Go.reviewName(r.key, "keep"); Bus.poke() } }) { Text("להחזיר את הניקוי") }
+                            }
+                        }
+                    }
+                }
+                item {
+                    if (confirmClear) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { confirmClear = false; scope.launch { Go.clearCuration(); Bus.poke() } }) { Text("כן, למחוק הכל") }
+                        OutlinedButton(onClick = { confirmClear = false }) { Text("ביטול") }
+                    } else TextButton(onClick = { confirmClear = true }) { Text("איפוס כל הניקויים והאיחודים", color = P.ink2) }
+                }
+            }
+        }
+    }
+}

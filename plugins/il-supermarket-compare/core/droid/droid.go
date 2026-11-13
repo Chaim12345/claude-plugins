@@ -178,6 +178,19 @@ func Models() string {
 	return js(map[string]any{"models": m})
 }
 
+func Catalog() (out string) { defer guard(&out); return js(eng().Catalog()) }
+func RunNames()             { go func() { defer guard(nil); eng().RunNames() }() }
+func RunLinks()             { go func() { defer guard(nil); eng().RunLinks() }() }
+func SetAutoLink(on bool)   { go func() { defer guard(nil); eng().SetAutoLink(on) }() }
+func ReviewLink(secondary, decision string) {
+	go func() { defer guard(nil); eng().ReviewLink(secondary, decision) }()
+}
+func ReviewName(code, decision string) {
+	go func() { defer guard(nil); eng().ReviewName(code, decision) }()
+}
+func ApproveAllLinks() { go func() { defer guard(nil); eng().ApproveAllLinks() }() }
+func ClearCuration()   { go func() { defer guard(nil); eng().ClearCuration() }() }
+
 func StartAI()   { eng().StartAI() }
 func RunEnrich() { go func() { defer guard(nil); eng().RunEnrich() }() }
 func RunCheck()  { go func() { defer guard(nil); eng().RunCheck() }() }

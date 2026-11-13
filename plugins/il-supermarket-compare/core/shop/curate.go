@@ -1,6 +1,7 @@
 package shop
 
 import (
+	"maps"
 	"regexp"
 	"sort"
 	"strings"
@@ -20,6 +21,37 @@ type Curation struct {
 
 func NewCuration() *Curation {
 	return &Curation{Names: map[string]string{}, Links: map[string]string{}, Approved: map[string]bool{}, Rejected: map[string]bool{}, Asked: map[string]bool{}}
+}
+
+// Fill makes every map non-nil (after reading a saved state that lacks some).
+func (c *Curation) Fill() {
+	if c.Names == nil {
+		c.Names = map[string]string{}
+	}
+	if c.Links == nil {
+		c.Links = map[string]string{}
+	}
+	if c.Approved == nil {
+		c.Approved = map[string]bool{}
+	}
+	if c.Rejected == nil {
+		c.Rejected = map[string]bool{}
+	}
+	if c.Asked == nil {
+		c.Asked = map[string]bool{}
+	}
+}
+
+// Clone is a copy that can be read while the original keeps changing.
+func (c *Curation) Clone() *Curation {
+	n := NewCuration()
+	n.AutoLink = c.AutoLink
+	maps.Copy(n.Names, c.Names)
+	maps.Copy(n.Links, c.Links)
+	maps.Copy(n.Approved, c.Approved)
+	maps.Copy(n.Rejected, c.Rejected)
+	maps.Copy(n.Asked, c.Asked)
+	return n
 }
 
 // LinkActive: approved (or auto), not undone.

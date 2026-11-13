@@ -62,6 +62,14 @@ object Go {
     suspend fun runCheck() = io { Droid.runCheck() }
     suspend fun stopAI() = io { Droid.stopAI() }
     suspend fun clearAI() = io { Droid.clearAI() }
+    suspend fun catalog() = io { CatalogView(JSONObject(Droid.catalog())) }
+    suspend fun runNames() = io { Droid.runNames() }
+    suspend fun runLinks() = io { Droid.runLinks() }
+    suspend fun setAutoLink(on: Boolean) = io { Droid.setAutoLink(on) }
+    suspend fun reviewLink(code: String, decision: String) = io { Droid.reviewLink(code, decision) }
+    suspend fun reviewName(code: String, decision: String) = io { Droid.reviewName(code, decision) }
+    suspend fun approveAllLinks() = io { Droid.approveAllLinks() }
+    suspend fun clearCuration() = io { Droid.clearCuration() }
 }
 
 // ---------- JSON helpers ----------
@@ -176,6 +184,17 @@ class AIView(o: JSONObject) {
     val verdicts: Map<String, Int> = o.optJSONObject("verdicts")?.let { v -> v.keys().asSequence().associateWith { v.optInt(it) } } ?: emptyMap()
     val run = o.optJSONObject("run")?.let { AIRun(it) }
     val presets = o.list("presets") { PresetView(it) }
+}
+
+class ReviewRow(o: JSONObject) {
+    val kind = o.s("kind"); val key = o.s("key"); val title = o.s("title"); val before = o.s("before"); val active = o.b("active"); val wait = o.b("wait")
+}
+
+class CatalogView(o: JSONObject) {
+    val nameTodo = o.i("nameTodo"); val linkTodo = o.i("linkTodo"); val names = o.i("names"); val links = o.i("links"); val waiting = o.i("waiting")
+    val autoLink = o.b("autoLink"); val hasAI = o.b("hasAI"); val requestsLeft = o.i("requestsLeft")
+    val run = o.optJSONObject("run")?.let { AIRun(it) }
+    val rows = o.list("rows") { ReviewRow(it) }
 }
 
 class MoveView(o: JSONObject) {

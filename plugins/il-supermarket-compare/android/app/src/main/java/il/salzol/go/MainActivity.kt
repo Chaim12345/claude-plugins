@@ -110,6 +110,7 @@ fun AppRoot() {
                 composable("location") { LocationScreen(nav) }
                 composable("stores") { StoresScreen(nav) }
                 composable("ai") { AIScreen(nav) }
+                composable("catalog") { CatalogScreen(nav) }
                 composable("changes") { ChangesScreen(nav) }
                 composable("watch") { WatchScreen(nav) }
                 composable("lists") { ListsScreen(nav) }

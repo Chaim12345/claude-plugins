@@ -46,6 +46,7 @@ type State struct {
 	Checked map[string]bool    `json:"checked"` // in-store checklist ticks
 	Changes []Change           `json:"changes"` // price moves, last 30 days
 	Notices []Notice           `json:"notices"` // watched products that got cheaper
+	Cur     *shop.Curation     `json:"cur"`     // cleaned names and merged barcodes
 }
 
 // Usage counts today's classification requests against the daily cap.
@@ -127,6 +128,10 @@ func Open(dir string) (*Engine, error) {
 	if e.st.Freq == nil {
 		e.st.Freq = map[string]int{}
 	}
+	if e.st.Cur == nil {
+		e.st.Cur = shop.NewCuration()
+	}
+	e.st.Cur.Fill()
 	st, err := ai.OpenStore(dir)
 	if err != nil {
 		return nil, err
@@ -175,13 +180,15 @@ func (e *Engine) loadCatalog(afterSync bool) {
 	}
 	e.mu.Lock()
 	e.building = true
+	cur := e.st.Cur.Clone()
 	e.mu.Unlock()
-	ix, err := shop.FromCatalog(&c, e.store.Records())
+	ix, err := shop.FromCatalog(&c, e.store.Records(), cur)
 	e.mu.Lock()
 	e.building = false
 	if err == nil {
 		old := e.ix
 		e.ix, e.deals, e.dealsKey = ix, nil, ""
+		e.remapAliases(ix.Alias)
 		if afterSync && old != nil && old.Cat.GeneratedAt != c.GeneratedAt {
 			e.diff(old, ix) // which prices moved, and notices for watched products
 			e.save()

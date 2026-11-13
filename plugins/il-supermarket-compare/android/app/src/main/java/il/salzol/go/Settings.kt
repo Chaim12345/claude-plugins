@@ -65,11 +65,12 @@ fun MoreScreen(nav: NavHostController) {
             item {
                 val run = st?.aiRun
                 MoreRow(Icons.Outlined.AutoAwesome, "בינה מלאכותית", when {
-                    run?.live == true -> if (run.kind == "enrich") "מסווג מוצרים: ${run.done}/${run.of}" else "בודק מבצעים: ${run.done}/${run.of}"
+                    run?.live == true -> "${runLabel(run.kind)}: ${run.done}/${run.of}"
                     st?.aiOn == true -> "פעיל: סיווג מוצרים ובדיקת מבצעים"
                     else -> "מפתח Gemini חינמי או כל ספק תואם OpenAI"
                 }) { nav.navigate("ai") }
             }
+            item { MoreRow(Icons.Outlined.AutoFixHigh, "כלי קטלוג", "ניקוי שמות ואיחוד מוצרים כפולים, עם אישור ושחזור") { nav.navigate("catalog") } }
             item {
                 Panel {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -276,7 +277,7 @@ fun AIScreen(nav: NavHostController) {
                     Text("סווגו ${"%,d".format(v.records)} מתוך ${"%,d".format(v.total)} ($pct%) · מודל: ${v.enrichUses}", fontSize = 13.sp, color = P.ink)
                     Text("היום: ${v.usedToday} מתוך ${v.dailyCap} בקשות", fontSize = 12.5.sp, color = P.ink2)
                     v.run?.let { r ->
-                        if (r.live) Text((if (r.kind == "enrich") "מסווג: " else "בודק מבצעים: ") + "${r.done}/${r.of}", color = P.brand, fontWeight = FontWeight.Bold)
+                        if (r.live) Text(runLabel(r.kind) + ": ${r.done}/${r.of}", color = P.brand, fontWeight = FontWeight.Bold)
                         else if (r.err.isNotEmpty()) Hint("נעצר: ${r.err}", P.bad)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -304,4 +305,8 @@ fun AIScreen(nav: NavHostController) {
         }
     }
 }
+}
+
+fun runLabel(kind: String) = when (kind) {
+    "enrich" -> "מסווג מוצרים"; "check" -> "בודק מבצעים"; "names" -> "מנקה שמות"; "links" -> "מחפש כפילויות"; else -> "עובד"
 }
